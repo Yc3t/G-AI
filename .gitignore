@@ -1,0 +1,12 @@
+download.ps1
+.venv
+.env
+*/__pycache__/*
+uploads
+transcription_structured.json
+.claude/
+CLAUDE.md
+t2.py
+t3.py
+transcription_structured.json
+logs/
