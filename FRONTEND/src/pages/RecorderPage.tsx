@@ -79,9 +79,6 @@ export const RecorderPage: React.FC = () => {
       }
     })
 
-    // Check for microphone permission
-    checkMicrophonePermission()
-
     return () => {
       if (timerRef.current) {
         clearInterval(timerRef.current)
@@ -179,12 +176,24 @@ export const RecorderPage: React.FC = () => {
   }, [])
 
   const checkMicrophonePermission = async () => {
-    if (audioRecorderRef.current) {
-      const hasPermission = await audioRecorderRef.current.requestPermission()
-      setRecorderState(prev => ({ ...prev, hasPermission }))
-      if (!hasPermission) {
-        setError('Se requiere acceso al micrófono para grabar.')
+    try {
+      // Prefer direct call to avoid race with ref initialization
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach(t => t.stop())
+      setRecorderState(prev => ({ ...prev, hasPermission: true }))
+      setError(null)
+    } catch (e) {
+      const err = e as { name?: string }
+      let message = 'Se requiere acceso al micrófono para grabar.'
+      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        message = 'Permiso al micrófono denegado. Habilítalo en los ajustes del sitio.'
+      } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
+        message = 'No se encontró ningún micrófono en el dispositivo.'
+      } else if (err?.name === 'NotReadableError') {
+        message = 'El micrófono está en uso por otra aplicación.'
       }
+      setRecorderState(prev => ({ ...prev, hasPermission: false }))
+      setError(message)
     }
   }
 
