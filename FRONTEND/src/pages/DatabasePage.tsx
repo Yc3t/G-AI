@@ -123,7 +123,7 @@ export const DatabasePage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-white overflow-x-hidden">
       {/* Header Navbar */}
       <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 sm:py-4">
         <div className="flex items-center justify-between">
@@ -221,11 +221,11 @@ export const DatabasePage: React.FC = () => {
         </div>
       ) : (
         <>
-        <div className="grid gap-3 sm:gap-4">
+        <div className="grid grid-cols-1 gap-3 sm:gap-4 w-full">
           {paginatedMeetings.map((meeting) => (
             <div
               key={meeting.id}
-              className="bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200"
+              className="w-full max-w-full bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 overflow-hidden"
             >
               <div className="p-3 sm:p-6">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3">
