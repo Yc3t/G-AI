@@ -711,9 +711,9 @@ export const RecorderPage: React.FC = () => {
                 <p className="max-w-sm text-center text-lg text-slate-700">Toca para comenzar a grabar tu reunion</p>
               </div>
             ) : (
-              <div className="flex w-full flex-col items-center gap-6 flex-shrink pt-12 sm:pt-16">
+              <div className="flex w-full flex-col items-center gap-4 flex-shrink pt-8 sm:pt-16">
                 <div className={`relative w-full max-w-2xl px-2 sm:px-4 flex-shrink-0 ${
-                  (participants.length > 0 || isLoadingParticipants) ? 'mt-3' : 'mt-2'
+                  (participants.length > 0 || isLoadingParticipants) ? 'mt-2' : 'mt-1'
                 } sm:mt-0`} style={{ height: 'clamp(200px, 30vh, 320px)' }}>
                   {/* Playhead */}
                   <div className={`absolute left-1/2 top-0 z-10 h-full w-0.5 -translate-x-1/2 ${
