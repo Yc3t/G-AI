@@ -662,8 +662,8 @@ export const RecorderPage: React.FC = () => {
             )}
 
             {!hasStartedSession ? null : (participants.length > 0 || isLoadingParticipants) && (
-            <div className={`absolute flex w-full max-w-md flex-col items-center gap-2 text-center flex-shrink-0 z-10 px-4 ${
-              recorderState.isPreRecording ? 'top-52 sm:top-56' : 'top-36 sm:top-40'
+            <div className={`sm:absolute flex w-full max-w-md flex-col items-center gap-2 text-center flex-shrink-0 z-10 px-4 mb-3 ${
+              recorderState.isPreRecording ? 'sm:top-56 mt-6' : 'sm:top-40 mt-6'
             }`}>
               <div className="w-full">
                 <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Participantes</p>
@@ -712,7 +712,9 @@ export const RecorderPage: React.FC = () => {
               </div>
             ) : (
               <div className="flex w-full flex-col items-center gap-6 flex-shrink pt-12 sm:pt-16">
-                <div className="relative w-full max-w-2xl px-2 sm:px-4 flex-shrink-0" style={{ height: 'clamp(200px, 30vh, 320px)' }}>
+                <div className={`relative w-full max-w-2xl px-2 sm:px-4 flex-shrink-0 ${
+                  (participants.length > 0 || isLoadingParticipants) ? 'mt-8' : 'mt-2'
+                } sm:mt-0`} style={{ height: 'clamp(200px, 30vh, 320px)' }}>
                   {/* Playhead */}
                   <div className={`absolute left-1/2 top-0 z-10 h-full w-0.5 -translate-x-1/2 ${
                     recorderState.isPreRecording ? 'bg-green-500' : 'bg-blue-500'
