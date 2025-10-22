@@ -24,13 +24,8 @@ export class AudioRecorder {
 
   async requestPermission(): Promise<boolean> {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 44100
-        } 
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true
       })
       
       // Stop the test stream
@@ -44,13 +39,12 @@ export class AudioRecorder {
 
   async startRecording(): Promise<void> {
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ 
+      this.stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 44100
-        } 
+          autoGainControl: true
+        }
       })
 
       // Set up audio context for level monitoring
