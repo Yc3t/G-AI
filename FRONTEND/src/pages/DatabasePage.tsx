@@ -225,7 +225,7 @@ export const DatabasePage: React.FC = () => {
           {paginatedMeetings.map((meeting) => (
             <div
               key={meeting.id}
-              className="w-full max-w-full bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 overflow-hidden"
+              className="w-full max-w-full bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 overflow-visible"
             >
               <div className="p-3 sm:p-6">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3">
