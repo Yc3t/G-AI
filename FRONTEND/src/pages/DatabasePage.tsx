@@ -221,14 +221,14 @@ export const DatabasePage: React.FC = () => {
         </div>
       ) : (
         <>
-        <div className="grid gap-4">
+        <div className="grid gap-3 sm:gap-4">
           {paginatedMeetings.map((meeting) => (
             <div
               key={meeting.id}
               className="bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200"
             >
-              <div className="p-4 sm:p-6">
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div className="p-3 sm:p-6">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center space-x-3 mb-2">
                       <h3 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
@@ -236,7 +236,7 @@ export const DatabasePage: React.FC = () => {
                       </h3>
                     </div>
 
-                    <div className="flex items-center space-x-4 text-xs sm:text-sm text-gray-600">
+                    <div className="flex items-center space-x-2 sm:space-x-4 text-xs sm:text-sm text-gray-600">
                       <div className="flex items-center space-x-1">
                         <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
                         <span>{formatDate(meeting.fecha_de_subida)}</span>
@@ -244,20 +244,20 @@ export const DatabasePage: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 self-end sm:self-start">
+                  <div className="flex flex-wrap items-center gap-2 self-end sm:self-start w-full sm:w-auto justify-end sm:justify-start">
                     <button
                       onClick={() => navigate(`/meeting/${meeting.id}`)}
-                      className="bg-primary-600 text-white px-3 py-1.5 rounded-lg hover:bg-primary-700 transition-colors flex items-center space-x-1 text-sm"
+                      className="bg-primary-600 text-white px-3 py-2 rounded-lg hover:bg-primary-700 transition-colors flex items-center space-x-1 text-sm"
                     >
                       <ExternalLink className="h-3 w-3 sm:h-4 sm:w-4" />
                       <span>Ver</span>
                     </button>
 
                     <div className="relative group">
-                      <button className="text-gray-400 hover:text-gray-600 p-1.5 sm:p-1">
+                      <button className="text-gray-500 hover:text-gray-700 p-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-md" aria-haspopup="menu">
                         <MoreVertical className="h-4 w-4" />
                       </button>
-                      <div className="absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[140px]">
+                      <div className="absolute right-0 top-9 sm:top-8 bg-white border border-gray-200 rounded-lg shadow-lg py-1 opacity-0 invisible pointer-events-none group-hover:opacity-100 group-hover:visible group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:visible group-focus-within:pointer-events-auto transition-all z-20 min-w-[160px]">
                         <button
                           onClick={() => {
                             setShowRenameModal(meeting.id)
