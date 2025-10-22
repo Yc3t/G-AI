@@ -644,7 +644,7 @@ export const RecorderPage: React.FC = () => {
 
           <main className="flex w-full flex-1 flex-col items-center justify-center min-h-0 max-h-full">
             {recorderState.isPreRecording && (
-              <div className="absolute top-20 sm:top-24 flex flex-col items-center gap-3 z-20">
+              <div className="sm:absolute sm:top-24 mt-4 flex flex-col items-center gap-3 z-20">
                 <div className="inline-flex items-center gap-2 rounded-full bg-green-50 px-4 py-2 ring-1 ring-green-200">
                   <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
                   <p className="text-sm font-medium text-green-700">Di los nombres de los participantes</p>
@@ -653,8 +653,8 @@ export const RecorderPage: React.FC = () => {
             )}
 
             {!hasStartedSession ? null : (
-            <div className={`absolute flex w-full max-w-md flex-col items-center gap-1 text-center flex-shrink-0 z-10 ${
-              recorderState.isPreRecording ? 'top-36 sm:top-40' : 'top-20 sm:top-24'
+            <div className={`sm:absolute flex w-full max-w-md flex-col items-center gap-1 text-center flex-shrink-0 z-10 ${
+              recorderState.isPreRecording ? 'sm:top-40 mt-4' : 'sm:top-24 mt-4'
             }`}>
               <p className="text-base font-medium text-slate-900">Nueva grabación</p>
               <p className="text-sm text-slate-500">{currentClockLabel}</p>
@@ -663,7 +663,7 @@ export const RecorderPage: React.FC = () => {
 
             {!hasStartedSession ? null : (participants.length > 0 || isLoadingParticipants) && (
             <div className={`sm:absolute flex w-full max-w-md flex-col items-center gap-2 text-center flex-shrink-0 z-10 px-4 mb-3 ${
-              recorderState.isPreRecording ? 'sm:top-56 mt-6' : 'sm:top-40 mt-6'
+              recorderState.isPreRecording ? 'sm:top-56 mt-8' : 'sm:top-40 mt-8'
             }`}>
               <div className="w-full">
                 <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Participantes</p>
