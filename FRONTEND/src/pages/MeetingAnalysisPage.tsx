@@ -805,10 +805,71 @@ export const MeetingAnalysisPage: React.FC = () => {
                             </div>
                           </div>
 
-                          {isExpanded && detail && (
-                            <div className="mt-2 text-sm text-gray-700">
-                              <MarkdownContent content={detail.content} />
+                          {/* Always-visible minimal timestamp chips (first 2) */}
+                          {detail && (detail.start_time || (detail.key_timestamps && detail.key_timestamps.length > 0)) && (
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              {detail.start_time && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); seekToTime(detail.start_time!) }}
+                                  className="inline-flex items-center rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-[10px] font-medium text-primary-700 hover:bg-primary-100"
+                                >
+                                  {detail.start_time}
+                                </button>
+                              )}
+                              {(() => {
+                                const all = (detail.key_timestamps || []).filter(kt => kt && kt.time)
+                                const max = Math.max(0, 2 - (detail.start_time ? 1 : 0))
+                                const shown = all.slice(0, max)
+                                const remaining = all.length - shown.length
+                                return (
+                                  <>
+                                    {shown.map((kt, i) => (
+                                      <button
+                                        key={`${point.id}-prets-${i}-${kt.time}`}
+                                        onClick={(e) => { e.stopPropagation(); seekToTime(kt.time!) }}
+                                        className="inline-flex items-center rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-[10px] font-medium text-primary-700 hover:bg-primary-100"
+                                        title={kt.description}
+                                      >
+                                        {kt.time}
+                                      </button>
+                                    ))}
+                                    {remaining > 0 && (
+                                      <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">+{remaining}</span>
+                                    )}
+                                  </>
+                                )
+                              })()}
                             </div>
+                          )}
+
+                          {isExpanded && detail && (
+                            <>
+                              {(detail.start_time || (detail.key_timestamps && detail.key_timestamps.length > 0)) && (
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  {detail.start_time && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); seekToTime(detail.start_time!) }}
+                                      className="inline-flex items-center rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-[11px] font-medium text-primary-700 hover:bg-primary-100"
+                                    >
+                                      {detail.start_time}
+                                    </button>
+                                  )}
+                                  {(detail.key_timestamps || []).filter(kt => kt && kt.time).map((kt, i) => (
+                                    <button
+                                      key={`${point.id}-ts-${i}-${kt.time}`}
+                                      onClick={(e) => { e.stopPropagation(); seekToTime(kt.time!) }}
+                                      className="inline-flex items-center rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-[11px] font-medium text-primary-700 hover:bg-primary-100"
+                                      title={kt.description}
+                                    >
+                                      {kt.time}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="mt-2 text-sm text-gray-700">
+                                <MarkdownContent content={detail.content} />
+                              </div>
+                            </>
                           )}
                         </div>
                       </div>
