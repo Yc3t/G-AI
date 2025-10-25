@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { meetingApi } from '../services/api'
 import type { MeetingListItem } from '../types'
+import { formatDuration } from '../services/audioUtils'
 
 export const DatabasePage: React.FC = () => {
   const navigate = useNavigate()
@@ -257,11 +258,23 @@ export const DatabasePage: React.FC = () => {
                       </h3>
                     </div>
 
-                    <div className="flex items-center space-x-2 sm:space-x-4 text-xs sm:text-sm text-gray-600">
+                    <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs sm:text-sm text-gray-600">
                       <div className="flex items-center space-x-1">
                         <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
                         <span>{formatDate(meeting.fecha_de_subida)}</span>
                       </div>
+                      {typeof (meeting as any).participants_count === 'number' && (
+                        <div className="flex items-center space-x-1">
+                          <Users className="h-3 w-3 sm:h-4 sm:w-4" />
+                          <span>{(meeting as any).participants_count}</span>
+                        </div>
+                      )}
+                      {typeof (meeting as any).duration_seconds === 'number' && (meeting as any).duration_seconds > 0 && (
+                        <div className="flex items-center space-x-1">
+                          <FileText className="h-3 w-3 sm:h-4 sm:w-4" />
+                          <span>{formatDuration((meeting as any).duration_seconds)}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 

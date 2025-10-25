@@ -193,6 +193,16 @@ def get_reuniones():
         except ValueError:
             return jsonify({"error": "Formato de fecha inválido. Use YYYY-MM-DD."}), 400
     try:
+        def _last_timestamp_seconds(text: str) -> int:
+            try:
+                lines = [ln.strip() for ln in (text or '').split('\n') if ln.strip()]
+                for ln in reversed(lines):
+                    m = re.match(r'\[(\d{2}):(\d{2})\]', ln)
+                    if m:
+                        return int(m.group(1)) * 60 + int(m.group(2))
+            except Exception:
+                pass
+            return 0
         reuniones = []
         for doc in db.reuniones.find(query).sort("fecha_de_subida", -1):
             doc['_id'] = str(doc['_id'])
@@ -205,10 +215,32 @@ def get_reuniones():
                     md_title = (md or {}).get('title') if isinstance(md, dict) else None
                     if isinstance(md_title, str) and md_title.strip():
                         doc['titulo'] = md_title.strip()
+                    # Derive participants count from metadata if not present elsewhere
+                    try:
+                        if 'participants_count' not in doc:
+                            md_participants = (md or {}).get('participants') if isinstance(md, dict) else None
+                            if isinstance(md_participants, list):
+                                doc['participants_count'] = len([p for p in md_participants if str(p).strip()])
+                    except Exception:
+                        pass
             except Exception:
                 pass
             if isinstance(doc.get('fecha_de_subida'), datetime):
                 doc['fecha_de_subida'] = doc['fecha_de_subida'].strftime('%Y-%m-%d %H:%M')
+            # Participants count from DB fields as primary source
+            try:
+                if isinstance(doc.get('participants'), list):
+                    doc['participants_count'] = len([p for p in doc['participants'] if isinstance(p, dict) and p.get('name')])
+                elif isinstance(doc.get('participantes'), list):
+                    doc['participants_count'] = len([n for n in doc['participantes'] if str(n).strip()])
+            except Exception:
+                pass
+            # Duration seconds from transcript last timestamp
+            try:
+                if 'duration_seconds' not in doc and isinstance(doc.get('transcripcion'), str) and doc['transcripcion'].strip():
+                    doc['duration_seconds'] = _last_timestamp_seconds(doc['transcripcion'])
+            except Exception:
+                pass
             reuniones.append(doc)
         return jsonify(reuniones)
     except Exception as e:
