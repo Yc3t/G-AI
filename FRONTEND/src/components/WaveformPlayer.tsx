@@ -36,7 +36,7 @@ export const WaveformPlayer: React.FC<WaveformPlayerProps> = ({
       cursorWidth: 2,
       height: 80,
       barGap: 2,
-      normalize: true,
+      normalize: false,
       interact: true
     })
 
