@@ -40,6 +40,22 @@ export const DatabasePage: React.FC = () => {
 
   useEffect(() => {
     const init = async () => {
+      // Try local session first to avoid unnecessary prompt
+      try {
+        const local = localStorage.getItem('db_auth_ok') === '1'
+        if (local) {
+          try {
+            setLoading(true)
+            const data = await meetingApi.getMeetings(selectedDate || undefined)
+            setMeetings(data)
+            setError(null)
+            setAuthChecked(true)
+            setShowAuthModal(false)
+            return
+          } catch {}
+        }
+      } catch {}
+
       const authorized = await meetingApi.authStatus().catch(() => false)
       if (authorized) {
         setShowAuthModal(false)
@@ -251,7 +267,7 @@ export const DatabasePage: React.FC = () => {
                 />
               </div>
               {authError && (
-                <div className="text-sm text-red-600 mb-3">{authError}</div>
+                <div className="text-sm text-red-600 mb-3" role="alert">{authError}</div>
               )}
               <div className="flex justify-end gap-3">
                 <button
@@ -268,10 +284,11 @@ export const DatabasePage: React.FC = () => {
                       setAuthError(null)
                       const ok = await meetingApi.verifyPassword(authPassword)
                       if (!ok) {
-                        setAuthError('Contraseña incorrecta')
+                        setAuthError('contraseña incorrecta')
                         setAuthLoading(false)
                         return
                       }
+                      try { localStorage.setItem('db_auth_ok', '1') } catch {}
                       setShowAuthModal(false)
                       setAuthPassword('')
                       await loadMeetings()
