@@ -45,14 +45,13 @@ export const DatabasePage: React.FC = () => {
         const local = localStorage.getItem('db_auth_ok') === '1'
         if (local) {
           try {
-            setLoading(true)
-            const data = await meetingApi.getMeetings(selectedDate || undefined)
-            setMeetings(data)
-            setError(null)
-            setAuthChecked(true)
             setShowAuthModal(false)
+            setAuthChecked(true)
+            await loadMeetings()
             return
-          } catch {}
+          } catch {
+            // fall through to server auth check
+          }
         }
       } catch {}
 
@@ -60,7 +59,7 @@ export const DatabasePage: React.FC = () => {
       if (authorized) {
         setShowAuthModal(false)
         setAuthChecked(true)
-        void loadMeetings()
+        await loadMeetings()
       } else {
         setLoading(false)
         setAuthChecked(true)
