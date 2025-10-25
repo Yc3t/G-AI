@@ -34,6 +34,15 @@ api.interceptors.response.use(
 )
 
 export const meetingApi = {
+  // Verify password (frontend helper)
+  async verifyPassword(password: string): Promise<boolean> {
+    try {
+      const res = await api.post('/verify_password', { password })
+      return !!res.data?.success
+    } catch {
+      return false
+    }
+  },
   // Get all meetings
   async getMeetings(date?: string): Promise<MeetingListItem[]> {
     const params = date ? { date } : {}

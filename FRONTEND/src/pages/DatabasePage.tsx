@@ -21,6 +21,8 @@ export const DatabasePage: React.FC = () => {
   const [meetings, setMeetings] = useState<MeetingListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [authChecked, setAuthChecked] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedDate, setSelectedDate] = useState('')
   const [showDeleteModal, setShowDeleteModal] = useState<string | null>(null)
@@ -34,7 +36,28 @@ export const DatabasePage: React.FC = () => {
   const [extraInfo, setExtraInfo] = useState<Record<string, { participants: number; duration: number }>>({})
 
   useEffect(() => {
-    loadMeetings()
+    const ensureAuth = async () => {
+      try {
+        const key = 'db_auth_token'
+        const existing = localStorage.getItem(key)
+        if (!existing) {
+          const pwd = window.prompt('Introduce la contraseña para acceder a la base de datos:') || ''
+          const ok = await meetingApi.verifyPassword(pwd)
+          if (!ok) {
+            setAuthError('Acceso denegado')
+            setAuthChecked(true)
+            return
+          }
+          localStorage.setItem(key, 'ok')
+        }
+        setAuthChecked(true)
+        loadMeetings()
+      } catch {
+        setAuthError('Acceso denegado')
+        setAuthChecked(true)
+      }
+    }
+    void ensureAuth()
   }, [selectedDate])
 
   // Close contextual menus on any document click
@@ -164,6 +187,36 @@ export const DatabasePage: React.FC = () => {
     } catch {
       return dateString
     }
+  }
+
+  if (!authChecked) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center space-y-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
+          <h3 className="text-lg font-semibold text-gray-900">Verificando acceso...</h3>
+        </div>
+      </div>
+    )
+  }
+
+  if (authError) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center space-y-4">
+          <h3 className="text-lg font-semibold text-gray-900">{authError}</h3>
+          <button
+            onClick={() => {
+              try { localStorage.removeItem('db_auth_token') } catch {}
+              window.location.reload()
+            }}
+            className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (loading) {
