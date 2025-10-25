@@ -37,9 +37,12 @@ export const meetingApi = {
   // Verify password (frontend helper)
   async verifyPassword(password: string): Promise<boolean> {
     try {
-      const res = await api.post('/verify_password', { password })
+      const res = await api.post('/verify_password', { password }, {
+        // Treat 401 as a normal response so the UI can show an inline error
+        validateStatus: () => true,
+      })
       return !!res.data?.success
-    } catch {
+    } catch (e) {
       return false
     }
   },
@@ -51,7 +54,7 @@ export const meetingApi = {
     } catch {
       return false
     }
-  },
+  },º
   // Get all meetings
   async getMeetings(date?: string): Promise<MeetingListItem[]> {
     const params = date ? { date } : {}
