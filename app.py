@@ -82,8 +82,10 @@ def allowed_file(filename: str) -> bool:
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def _has_db_auth_cookie() -> bool:
-    # Deprecated: frontend prompts every time; cookie not used
-    return False
+    try:
+        return request.cookies.get('db_auth') == '1'
+    except Exception:
+        return False
 
 def _convert_webm_to_mp3(webm_path: str) -> str:
     """
@@ -184,6 +186,8 @@ def get_reuniones():
     Obtiene una lista de reuniones, con opción de filtrar por fecha.
     Prepara los datos para ser consumidos por el frontend (serialización).
     """
+    if not _has_db_auth_cookie():
+        return jsonify({"error": "Unauthorized"}), 401
     query = {}
     date_param = request.args.get('date')
     if date_param:
@@ -1052,9 +1056,23 @@ def verify_password():
         return jsonify({"success": False, "error": "Error de configuración del servidor."}), 500
 
     if submitted_password == correct_password:
-        return jsonify({"success": True})
+        resp = jsonify({"success": True})
+        try:
+            resp.set_cookie('db_auth', '1', httponly=True, samesite='Lax', max_age=60*60*8)
+        except Exception:
+            pass
+        return resp
     else:
-        return jsonify({"success": False, "error": "Contraseña incorrecta."}), 401
+        resp = jsonify({"success": False, "error": "Contraseña incorrecta."})
+        try:
+            resp.set_cookie('db_auth', '', max_age=0)
+        except Exception:
+            pass
+        return resp, 401
+
+@app.route('/auth/status', methods=['GET'])
+def auth_status():
+    return jsonify({"authorized": _has_db_auth_cookie()})
 
 
 # ===================== CONTACTS API =====================

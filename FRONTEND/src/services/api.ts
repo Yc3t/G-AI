@@ -43,6 +43,15 @@ export const meetingApi = {
       return false
     }
   },
+
+  async authStatus(): Promise<boolean> {
+    try {
+      const res = await api.get('/auth/status')
+      return !!res.data?.authorized
+    } catch {
+      return false
+    }
+  },
   // Get all meetings
   async getMeetings(date?: string): Promise<MeetingListItem[]> {
     const params = date ? { date } : {}

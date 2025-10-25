@@ -39,10 +39,19 @@ export const DatabasePage: React.FC = () => {
   const [extraInfo, setExtraInfo] = useState<Record<string, { participants: number; duration: number }>>({})
 
   useEffect(() => {
-    // Always prompt for password before fetching
-    setShowAuthModal(true)
-    setAuthChecked(true)
-    setLoading(false)
+    const init = async () => {
+      const authorized = await meetingApi.authStatus().catch(() => false)
+      if (authorized) {
+        setShowAuthModal(false)
+        setAuthChecked(true)
+        void loadMeetings()
+      } else {
+        setLoading(false)
+        setAuthChecked(true)
+        setShowAuthModal(true)
+      }
+    }
+    void init()
   }, [selectedDate])
 
   // Close contextual menus on any document click
@@ -254,20 +263,20 @@ export const DatabasePage: React.FC = () => {
                 </button>
                 <button
                   onClick={async () => {
-                    setAuthLoading(true)
-                    setAuthError(null)
-                    const ok = await meetingApi.verifyPassword(authPassword)
-                    if (ok) {
-                      try {
-                        await loadMeetings()
-                      } finally {
-                        setShowAuthModal(false)
-                        setAuthPassword('')
+                    try {
+                      setAuthLoading(true)
+                      setAuthError(null)
+                      const ok = await meetingApi.verifyPassword(authPassword)
+                      if (!ok) {
+                        setAuthError('Contraseña incorrecta')
                         setAuthLoading(false)
+                        return
                       }
-                    } else {
+                      setShowAuthModal(false)
+                      setAuthPassword('')
+                      await loadMeetings()
+                    } finally {
                       setAuthLoading(false)
-                      setAuthError('Contraseña incorrecta')
                     }
                   }}
                   disabled={authLoading || !authPassword}
