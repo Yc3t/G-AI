@@ -54,7 +54,7 @@ export const meetingApi = {
     } catch {
       return false
     }
-  },º
+  },
   // Get all meetings
   async getMeetings(date?: string): Promise<MeetingListItem[]> {
     const params = date ? { date } : {}
@@ -223,11 +223,7 @@ export const meetingApi = {
     return response.data
   },
 
-  // Verify password (for database access)
-  async verifyPassword(password: string): Promise<{ success: boolean }> {
-    const response = await api.post('/verify_password', { password })
-    return response.data
-  }
+  // (legacy verifyPassword removed; use boolean verifyPassword above)
 }
 
 export const audioService = {
