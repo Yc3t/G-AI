@@ -20,6 +20,7 @@ export const WaveformPlayer: React.FC<WaveformPlayerProps> = ({
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [isReady, setIsReady] = useState(false)
 
   // Initialize WaveSurfer
   useEffect(() => {
@@ -54,6 +55,7 @@ export const WaveformPlayer: React.FC<WaveformPlayerProps> = ({
       const dur = wavesurfer.getDuration()
       setDuration(dur)
       onDurationChange?.(dur)
+      setIsReady(true)
     })
 
     wavesurfer.on('audioprocess', (time) => {
@@ -93,6 +95,11 @@ export const WaveformPlayer: React.FC<WaveformPlayerProps> = ({
     }
   }, [audioUrl, onTimeUpdate, onDurationChange])
 
+  // Reset loading state when audio URL changes
+  useEffect(() => {
+    setIsReady(false)
+  }, [audioUrl])
+
   // Handle external seek requests (auto-play only when seekTime changes)
   useEffect(() => {
     const ws = wavesurferRef.current
@@ -127,7 +134,15 @@ export const WaveformPlayer: React.FC<WaveformPlayerProps> = ({
         </button>
 
         <div className="flex-1">
-          <div ref={containerRef} className="w-full" />
+          <div className="relative" style={{ height: 80 }} aria-busy={!isReady}>
+            <div ref={containerRef} className="w-full h-full" />
+            {!isReady && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <div className="h-20 w-full rounded bg-gray-200 animate-pulse" />
+                <div className="mt-2 text-xs text-gray-600">Cargando audio…</div>
+              </div>
+            )}
+          </div>
           <div className="flex justify-between text-xs text-gray-600 mt-1">
             <span>{formatTime(currentTime)}</span>
             <span>{formatTime(duration)}</span>

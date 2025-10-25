@@ -24,6 +24,7 @@ export const RecorderPage: React.FC = () => {
   })
   
   const [participants, setParticipants] = useState<Participant[]>([])
+  const [permissionChecked, setPermissionChecked] = useState(false)
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -88,6 +89,37 @@ export const RecorderPage: React.FC = () => {
       }
       stopPreRecordingAudioMonitoring()
     }
+  }, [])
+
+  // Detect previously granted microphone permission so we don't ask every time
+  useEffect(() => {
+    let cancelled = false
+    const detectPermission = async () => {
+      try {
+        const navAny = navigator as any
+        if (navAny?.permissions?.query) {
+          const status = await navAny.permissions.query({ name: 'microphone' })
+          if (!cancelled) {
+            setRecorderState(prev => ({ ...prev, hasPermission: status?.state === 'granted' }))
+          }
+          if (status && 'onchange' in status) {
+            ;(status as any).onchange = () => {
+              const st = (status as any).state
+              setRecorderState(prev => ({ ...prev, hasPermission: st === 'granted' }))
+            }
+          }
+        } else if (navigator.mediaDevices?.enumerateDevices) {
+          const devices = await navigator.mediaDevices.enumerateDevices()
+          const granted = devices.some(d => d.kind === 'audioinput' && d.label)
+          if (!cancelled && granted) {
+            setRecorderState(prev => ({ ...prev, hasPermission: true }))
+          }
+        }
+      } catch {}
+      if (!cancelled) setPermissionChecked(true)
+    }
+    void detectPermission()
+    return () => { cancelled = true }
   }, [])
 
   // Keep ref in sync
@@ -626,7 +658,7 @@ export const RecorderPage: React.FC = () => {
               </div>
             )}
 
-            {!recorderState.hasPermission && (
+            {!recorderState.hasPermission && permissionChecked && (
               <div className="w-full max-w-md mx-auto rounded-2xl bg-yellow-50 px-3 py-2 text-yellow-800 shadow-sm ring-1 ring-yellow-200 flex-shrink-0">
                 <div className="flex items-center gap-2">
                   <MicOff className="h-4 w-4" />

@@ -29,10 +29,31 @@ export const DatabasePage: React.FC = () => {
   const [renaming, setRenaming] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const ITEMS_PER_PAGE = 50
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
 
   useEffect(() => {
     loadMeetings()
   }, [selectedDate])
+
+  // Close contextual menus on any document click
+  useEffect(() => {
+    const onDocClick = () => setOpenMenuId(null)
+    window.addEventListener('click', onDocClick)
+    return () => window.removeEventListener('click', onDocClick)
+  }, [])
+
+  // Close menu on scroll/touch/resize to avoid scroll interception on desktop/mobile
+  useEffect(() => {
+    const close = () => setOpenMenuId(null)
+    window.addEventListener('scroll', close, { passive: true })
+    window.addEventListener('touchstart', close, { passive: true })
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('scroll', close)
+      window.removeEventListener('touchstart', close)
+      window.removeEventListener('resize', close)
+    }
+  }, [])
 
   const loadMeetings = async () => {
     try {
@@ -253,29 +274,46 @@ export const DatabasePage: React.FC = () => {
                       <span>Ver</span>
                     </button>
 
-                    <div className="relative group">
-                      <button className="text-gray-500 hover:text-gray-700 p-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-md" aria-haspopup="menu">
+                    <div className="relative">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setOpenMenuId(prev => prev === meeting.id ? null : meeting.id)
+                        }}
+                        className="text-gray-500 hover:text-gray-700 p-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-md"
+                        aria-haspopup="menu"
+                        aria-expanded={openMenuId === meeting.id}
+                      >
                         <MoreVertical className="h-4 w-4" />
                       </button>
-                      <div className="absolute right-0 top-9 sm:top-8 bg-white border border-gray-200 rounded-lg shadow-lg py-1 opacity-0 invisible pointer-events-none group-hover:opacity-100 group-hover:visible group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:visible group-focus-within:pointer-events-auto transition-all z-20 min-w-[160px]">
-                        <button
-                          onClick={() => {
-                            setShowRenameModal(meeting.id)
-                            setNewTitle(meeting.titulo)
-                          }}
-                          className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                      {openMenuId === meeting.id && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="absolute right-0 top-9 sm:top-8 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-30 min-w-[160px]"
                         >
-                          <Edit className="h-4 w-4" />
-                          <span>Renombrar</span>
-                        </button>
-                        <button
-                          onClick={() => setShowDeleteModal(meeting.id)}
-                          className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          <span>Eliminar</span>
-                        </button>
-                      </div>
+                          <button
+                            onClick={() => {
+                              setShowRenameModal(meeting.id)
+                              setNewTitle(meeting.titulo)
+                              setOpenMenuId(null)
+                            }}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                          >
+                            <Edit className="h-4 w-4" />
+                            <span>Renombrar</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowDeleteModal(meeting.id)
+                              setOpenMenuId(null)
+                            }}
+                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            <span>Eliminar</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

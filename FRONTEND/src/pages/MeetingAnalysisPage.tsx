@@ -451,7 +451,13 @@ export const MeetingAnalysisPage: React.FC = () => {
                   <div className="pb-4 border-b border-gray-200">
                     <div className="space-y-3">
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                        <h2 className="text-base sm:text-lg font-semibold text-gray-900">{meeting.titulo}</h2>
+                        {(() => {
+                          const metaTitle = meeting.minutes?.metadata?.title
+                          const displayTitle = (typeof metaTitle === 'string' && metaTitle.trim()) ? metaTitle : meeting.titulo
+                          return (
+                            <h2 className="text-base sm:text-lg font-semibold text-gray-900">{displayTitle}</h2>
+                          )
+                        })()}
                         <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
                           {isEditMode ? (
                             <>
