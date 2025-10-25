@@ -244,7 +244,41 @@ export const DatabasePage: React.FC = () => {
       ) : (
         <>
         <div className="grid grid-cols-1 gap-3 sm:gap-4 w-full">
-          {paginatedMeetings.map((meeting) => (
+          {paginatedMeetings.map((meeting) => {
+            const m: any = meeting as any
+            const participantsCount: number | null = (() => {
+              try {
+                if (typeof m.participants_count === 'number') return m.participants_count
+                if (Array.isArray(m.participants)) return m.participants.filter((p: any) => p && (p.name || String(p).trim())).length
+                if (Array.isArray(m.participantes)) return m.participantes.filter((n: any) => String(n || '').trim()).length
+                if (typeof m.resumen === 'string' && m.resumen.trim()) {
+                  const parsed = JSON.parse(m.resumen)
+                  const md = parsed && parsed.metadata
+                  if (md && Array.isArray(md.participants)) return md.participants.filter((n: any) => String(n || '').trim()).length
+                }
+              } catch {}
+              return null
+            })()
+            const durationSeconds: number | null = (() => {
+              try {
+                if (typeof m.duration_seconds === 'number' && m.duration_seconds > 0) return m.duration_seconds
+                const text: string = typeof m.transcripcion === 'string' ? m.transcripcion : ''
+                if (text) {
+                  const lines = text.split('\n').map((ln: string) => ln.trim()).filter(Boolean)
+                  for (let i = lines.length - 1; i >= 0; i--) {
+                    const match = lines[i].match(/^\[(\d{2}):(\d{2})\]/)
+                    if (match) {
+                      const mins = parseInt(match[1], 10)
+                      const secs = parseInt(match[2], 10)
+                      return mins * 60 + secs
+                    }
+                  }
+                }
+              } catch {}
+              return null
+            })()
+
+            return (
             <div
               key={meeting.id}
               className="w-full max-w-full bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 overflow-visible"
@@ -263,16 +297,16 @@ export const DatabasePage: React.FC = () => {
                         <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
                         <span>{formatDate(meeting.fecha_de_subida)}</span>
                       </div>
-                      {typeof (meeting as any).participants_count === 'number' && (
+                      {participantsCount !== null && (
                         <div className="flex items-center space-x-1">
                           <Users className="h-3 w-3 sm:h-4 sm:w-4" />
-                          <span>{(meeting as any).participants_count}</span>
+                          <span>{participantsCount}</span>
                         </div>
                       )}
-                      {typeof (meeting as any).duration_seconds === 'number' && (meeting as any).duration_seconds > 0 && (
+                      {durationSeconds !== null && durationSeconds > 0 && (
                         <div className="flex items-center space-x-1">
                           <FileText className="h-3 w-3 sm:h-4 sm:w-4" />
-                          <span>{formatDuration((meeting as any).duration_seconds)}</span>
+                          <span>{formatDuration(durationSeconds)}</span>
                         </div>
                       )}
                     </div>
@@ -332,7 +366,8 @@ export const DatabasePage: React.FC = () => {
                 </div>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
 
         {/* Pagination */}
