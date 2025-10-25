@@ -31,6 +31,7 @@ export const DatabasePage: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1)
   const ITEMS_PER_PAGE = 50
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const [extraInfo, setExtraInfo] = useState<Record<string, { participants: number; duration: number }>>({})
 
   useEffect(() => {
     loadMeetings()
@@ -84,6 +85,38 @@ export const DatabasePage: React.FC = () => {
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
   const endIndex = startIndex + ITEMS_PER_PAGE
   const paginatedMeetings = filteredMeetings.slice(startIndex, endIndex)
+
+  // Fetch extra info (participants count, duration) for visible meetings as fallback
+  useEffect(() => {
+    let cancelled = false
+    const loadExtras = async () => {
+      try {
+        const missing = paginatedMeetings
+          .filter(m => !extraInfo[m.id])
+          .map(m => m.id)
+        if (missing.length === 0) return
+        const results = await Promise.allSettled(missing.map(id => meetingApi.getMeeting(id)))
+        if (cancelled) return
+        setExtraInfo(prev => {
+          const next = { ...prev }
+          results.forEach((res, idx) => {
+            const id = missing[idx]
+            if (res.status === 'fulfilled' && res.value) {
+              try {
+                const data: any = res.value
+                const participants = Array.isArray(data.participants) ? data.participants.filter((p: any) => p && (p.name || String(p).trim())).length : 0
+                const duration = (data.minutes && data.minutes.metadata && typeof data.minutes.metadata.duration_seconds === 'number') ? data.minutes.metadata.duration_seconds : 0
+                next[id] = { participants, duration }
+              } catch {}
+            }
+          })
+          return next
+        })
+      } catch {}
+    }
+    void loadExtras()
+    return () => { cancelled = true }
+  }, [paginatedMeetings])
 
   const handleDeleteMeeting = async (id: string) => {
     setDeleting(true)
@@ -257,7 +290,8 @@ export const DatabasePage: React.FC = () => {
                   if (md && Array.isArray(md.participants)) return md.participants.filter((n: any) => String(n || '').trim()).length
                 }
               } catch {}
-              return null
+              const fallback = extraInfo[meeting.id]?.participants
+              return typeof fallback === 'number' ? fallback : null
             })()
             const durationSeconds: number | null = (() => {
               try {
@@ -275,7 +309,8 @@ export const DatabasePage: React.FC = () => {
                   }
                 }
               } catch {}
-              return null
+              const fallback = extraInfo[meeting.id]?.duration
+              return typeof fallback === 'number' ? fallback : null
             })()
 
             return (
