@@ -111,6 +111,7 @@ export const DatabasePage: React.FC = () => {
     let cancelled = false
     const loadExtras = async () => {
       try {
+        if (!authChecked || showAuthModal) return
         const missing = paginatedMeetings
           .filter(m => !extraInfo[m.id])
           .map(m => m.id)
@@ -136,7 +137,7 @@ export const DatabasePage: React.FC = () => {
     }
     void loadExtras()
     return () => { cancelled = true }
-  }, [paginatedMeetings])
+  }, [paginatedMeetings, authChecked, showAuthModal])
 
   const handleDeleteMeeting = async (id: string) => {
     setDeleting(true)
