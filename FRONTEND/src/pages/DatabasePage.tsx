@@ -283,7 +283,7 @@ export const DatabasePage: React.FC = () => {
                       setAuthError(null)
                       const ok = await meetingApi.verifyPassword(authPassword)
                       if (!ok) {
-                        setAuthError('contraseña incorrecta')
+                        setAuthError('Contraseña incorrecta.')
                         setAuthLoading(false)
                         return
                       }
