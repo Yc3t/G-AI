@@ -137,9 +137,8 @@ export const WaveformPlayer: React.FC<WaveformPlayerProps> = ({
           <div className="relative" style={{ height: 80 }} aria-busy={!isReady}>
             <div ref={containerRef} className="w-full h-full" />
             {!isReady && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <div className="h-20 w-full rounded bg-gray-200 animate-pulse" />
-                <div className="mt-2 text-xs text-gray-600">Cargando audio…</div>
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none" aria-hidden="true">
+                <div className="h-3 w-[96%] rounded bg-gray-200 animate-pulse" />
               </div>
             )}
           </div>
