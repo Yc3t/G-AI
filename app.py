@@ -69,9 +69,6 @@ except Exception as e:
 
 
 
-# =========================================================================
-# 3. FUNCIONES AUXILIARES
-# =========================================================================
 
 def allowed_file(filename: str) -> bool:
     """
@@ -83,6 +80,13 @@ def allowed_file(filename: str) -> bool:
         bool: True si la extensión es válida, False en caso contrario.
     """
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def _has_db_auth_cookie() -> bool:
+    try:
+        token = request.cookies.get('db_auth')
+        return token == '1'
+    except Exception:
+        return False
 
 def _convert_webm_to_mp3(webm_path: str) -> str:
     """
@@ -148,6 +152,9 @@ def index():
 @app.route('/database.html')
 def database():
     """Sirve la página de la base de datos de reuniones."""
+    # Basic gate: if no auth cookie, redirect to home
+    if not _has_db_auth_cookie():
+        return render_template('initial.html')
     return render_template('database.html')
 
 @app.route('/reunion')
@@ -192,6 +199,9 @@ def get_reuniones():
             query = {"fecha_de_subida": {"$gte": fecha_inicio, "$lt": fecha_fin}}
         except ValueError:
             return jsonify({"error": "Formato de fecha inválido. Use YYYY-MM-DD."}), 400
+    # Require basic auth cookie for listing
+    if not _has_db_auth_cookie():
+        return jsonify({"error": "Unauthorized"}), 401
     try:
         def _last_timestamp_seconds(text: str) -> int:
             try:
@@ -1051,9 +1061,19 @@ def verify_password():
         return jsonify({"success": False, "error": "Error de configuración del servidor."}), 500
 
     if submitted_password == correct_password:
-        return jsonify({"success": True})
+        resp = jsonify({"success": True})
+        try:
+            resp.set_cookie('db_auth', '1', httponly=True, samesite='Lax', max_age=60*60*8)
+        except Exception:
+            pass
+        return resp
     else:
-        return jsonify({"success": False, "error": "Contraseña incorrecta."}), 401
+        resp = jsonify({"success": False, "error": "Contraseña incorrecta."})
+        try:
+            resp.set_cookie('db_auth', '', max_age=0)
+        except Exception:
+            pass
+        return resp, 401
 
 
 # ===================== CONTACTS API =====================

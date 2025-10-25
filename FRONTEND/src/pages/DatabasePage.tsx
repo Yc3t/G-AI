@@ -23,6 +23,9 @@ export const DatabasePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
+  const [showAuthModal, setShowAuthModal] = useState(false)
+  const [authPassword, setAuthPassword] = useState('')
+  const [authLoading, setAuthLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedDate, setSelectedDate] = useState('')
   const [showDeleteModal, setShowDeleteModal] = useState<string | null>(null)
@@ -36,28 +39,22 @@ export const DatabasePage: React.FC = () => {
   const [extraInfo, setExtraInfo] = useState<Record<string, { participants: number; duration: number }>>({})
 
   useEffect(() => {
-    const ensureAuth = async () => {
+    // On mount or date change, just check cookie via a lightweight endpoint
+    const check = async () => {
       try {
-        const key = 'db_auth_token'
-        const existing = localStorage.getItem(key)
-        if (!existing) {
-          const pwd = window.prompt('Introduce la contraseña para acceder a la base de datos:') || ''
-          const ok = await meetingApi.verifyPassword(pwd)
-          if (!ok) {
-            setAuthError('Acceso denegado')
-            setAuthChecked(true)
-            return
-          }
-          localStorage.setItem(key, 'ok')
-        }
+        // Try to list; if 401, show modal
+        setLoading(true)
+        const data = await meetingApi.getMeetings(selectedDate || undefined)
+        setMeetings(data)
+        setError(null)
         setAuthChecked(true)
-        loadMeetings()
-      } catch {
-        setAuthError('Acceso denegado')
+      } catch (e: any) {
+        setLoading(false)
+        setShowAuthModal(true)
         setAuthChecked(true)
       }
     }
-    void ensureAuth()
+    void check()
   }, [selectedDate])
 
   // Close contextual menus on any document click
@@ -200,25 +197,6 @@ export const DatabasePage: React.FC = () => {
     )
   }
 
-  if (authError) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center space-y-4">
-          <h3 className="text-lg font-semibold text-gray-900">{authError}</h3>
-          <button
-            onClick={() => {
-              try { localStorage.removeItem('db_auth_token') } catch {}
-              window.location.reload()
-            }}
-            className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors"
-          >
-            Reintentar
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -259,6 +237,55 @@ export const DatabasePage: React.FC = () => {
 
       {/* Main Content */}
       <div className="px-4 sm:px-6 py-6 space-y-6">
+        {/* Auth Modal */}
+        {showAuthModal && (
+          <div className="fixed inset-0 backdrop-blur-sm bg-black/20 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-2xl border">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Acceso a Base de Datos</h3>
+              <p className="text-sm text-gray-600 mb-4">Introduce la contraseña para continuar.</p>
+              <div className="relative mb-4">
+                <input
+                  type="password"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent pr-10"
+                  placeholder="Contraseña"
+                />
+              </div>
+              {authError && (
+                <div className="text-sm text-red-600 mb-3">{authError}</div>
+              )}
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => navigate('/')}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                  disabled={authLoading}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => {
+                    setAuthLoading(true)
+                    setAuthError(null)
+                    const ok = await meetingApi.verifyPassword(authPassword)
+                    setAuthLoading(false)
+                    if (ok) {
+                      setShowAuthModal(false)
+                      setAuthPassword('')
+                      void loadMeetings()
+                    } else {
+                      setAuthError('Contraseña incorrecta')
+                    }
+                  }}
+                  disabled={authLoading || !authPassword}
+                  className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
+                >
+                  {authLoading ? 'Verificando...' : 'Acceder'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Page Title */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
