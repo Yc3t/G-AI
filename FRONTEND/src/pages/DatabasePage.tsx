@@ -39,22 +39,10 @@ export const DatabasePage: React.FC = () => {
   const [extraInfo, setExtraInfo] = useState<Record<string, { participants: number; duration: number }>>({})
 
   useEffect(() => {
-    // On mount or date change, just check cookie via a lightweight endpoint
-    const check = async () => {
-      try {
-        // Try to list; if 401, show modal
-        setLoading(true)
-        const data = await meetingApi.getMeetings(selectedDate || undefined)
-        setMeetings(data)
-        setError(null)
-        setAuthChecked(true)
-      } catch (e: any) {
-        setLoading(false)
-        setShowAuthModal(true)
-        setAuthChecked(true)
-      }
-    }
-    void check()
+    // Always prompt for password before fetching
+    setShowAuthModal(true)
+    setAuthChecked(true)
+    setLoading(false)
   }, [selectedDate])
 
   // Close contextual menus on any document click
@@ -269,12 +257,16 @@ export const DatabasePage: React.FC = () => {
                     setAuthLoading(true)
                     setAuthError(null)
                     const ok = await meetingApi.verifyPassword(authPassword)
-                    setAuthLoading(false)
                     if (ok) {
-                      setShowAuthModal(false)
-                      setAuthPassword('')
-                      void loadMeetings()
+                      try {
+                        await loadMeetings()
+                      } finally {
+                        setShowAuthModal(false)
+                        setAuthPassword('')
+                        setAuthLoading(false)
+                      }
                     } else {
+                      setAuthLoading(false)
                       setAuthError('Contraseña incorrecta')
                     }
                   }}
