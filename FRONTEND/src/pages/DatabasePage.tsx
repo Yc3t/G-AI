@@ -95,9 +95,17 @@ export const DatabasePage: React.FC = () => {
       const data = await meetingApi.getMeetings(selectedDate || undefined)
       setMeetings(data)
       setError(null)
-    } catch (error) {
-      console.error('Failed to load meetings:', error)
-      setError('Error al cargar las reuniones')
+    } catch (error: any) {
+      // If unauthorized, clear local flag and prompt for password again
+      if (error?.response?.status === 401) {
+        try { localStorage.removeItem('db_auth_ok') } catch {}
+        setShowAuthModal(true)
+        setAuthChecked(true)
+        setError(null)
+      } else {
+        console.error('Failed to load meetings:', error)
+        setError('Error al cargar las reuniones')
+      }
     } finally {
       setLoading(false)
     }
