@@ -19,7 +19,6 @@ import json
 import uuid
 import re
 from datetime import datetime, timedelta
-import threading
 from typing import Any
 
 # Librerías de terceros (instaladas con pip)
@@ -268,7 +267,6 @@ def get_reunion_by_id(reunion_id: str):
         is_processed = bool(reunion_doc.get('resumen') and reunion_doc.get('transcripcion'))
 
         summary_data = {}
-        minutes_summary = {}
         if reunion_doc.get('resumen'):
             try:
                 summary_data = json.loads(reunion_doc['resumen'])
@@ -276,13 +274,6 @@ def get_reunion_by_id(reunion_id: str):
                 print(f"[DEBUG app.py] Summary has tasks_and_objectives: {summary_data.get('tasks_and_objectives', 'NOT FOUND')}")
             except (json.JSONDecodeError, TypeError):
                 summary_data = {} # Si hay un error, devuelve objeto vacío
-
-        # Prefer one-shot minutes summary for acta if available
-        try:
-            if reunion_doc.get('resumen_minutes'):
-                minutes_summary = json.loads(reunion_doc['resumen_minutes'])
-        except Exception:
-            minutes_summary = {}
 
         # If meeting doc has no participants but summary metadata has them, expose them
         try:
@@ -305,8 +296,8 @@ def get_reunion_by_id(reunion_id: str):
                     text = match.group(3) if match else line.strip()
                     segments.append({"id": i, "start": start_time, "text": text})
 
-        # Build minutes (on-the-fly) using one-shot minutes summary when present
-        minutes_obj = compose_minutes(reunion_doc, minutes_summary or summary_data)
+        # Build minutes (on-the-fly)
+        minutes_obj = compose_minutes(reunion_doc, summary_data)
         print(f"[DEBUG app.py] Minutes composed. tasks_and_objectives in minutes: {minutes_obj.get('tasks_and_objectives', 'NOT FOUND')}")
         
         # Preparar participantes (nuevo campo 'participants') enriquecidos con emails desde contactos
@@ -524,12 +515,7 @@ def process_final_audio():
     db.reuniones.update_one({"id": reunion_id}, {"$set": {"audio_path": file_path}})
 
     # Lanza el proceso de análisis en segundo plano.
-    try:
-        threading.Thread(target=_process_audio_and_generate_summary, args=(file_path, reunion_id), daemon=True).start()
-    except Exception as e:
-        print(f"Error iniciando hilo de análisis: {e}")
-        # En caso extremo, ejecutar sincrónicamente (puede tardar)
-        _process_audio_and_generate_summary(file_path, reunion_id)
+    _process_audio_and_generate_summary(file_path, reunion_id)
 
     print(f"Audio para la reunión {reunion_id} guardado. Análisis iniciado en segundo plano.")
     return jsonify({"reunion_id": reunion_id, "message": "Procesamiento iniciado."}), 200
@@ -615,15 +601,13 @@ def update_reunion_minutes(reunion_id: str):
         if not reunion_doc:
             return jsonify({"error": "Reunión no encontrada."}), 404
 
-        # Parse current minutes summary to preserve other data (fallback to 'resumen')
+        # Parse current summary to preserve other data
         current_summary = {}
-        try:
-            if reunion_doc.get('resumen_minutes'):
-                current_summary = json.loads(reunion_doc['resumen_minutes'])
-            elif reunion_doc.get('resumen'):
+        if reunion_doc.get('resumen'):
+            try:
                 current_summary = json.loads(reunion_doc['resumen'])
-        except Exception:
-            current_summary = {}
+            except:
+                pass
 
         # Update fields based on payload
         update_fields = {}
@@ -672,9 +656,9 @@ def update_reunion_minutes(reunion_id: str):
             custom_sections = payload['custom_sections']
             current_summary['custom_sections'] = custom_sections
 
-        # Save updated minutes summary back to DB (do not alter 'resumen' used by summary tab)
+        # Save updated summary back to DB
         if current_summary:
-            update_fields['resumen_minutes'] = json.dumps(current_summary, ensure_ascii=False)
+            update_fields['resumen'] = json.dumps(current_summary, ensure_ascii=False)
 
         if update_fields:
             db.reuniones.update_one(
@@ -721,12 +705,10 @@ def send_summary_email(reunion_id: str):
         if not reunion_doc:
             return jsonify({"error": "Reunión no encontrada."}), 404
 
-        # Parse minutes summary (prefer one-shot minutes, fallback to general resumen)
+        # Parse summary
         summary = {}
         try:
-            if reunion_doc.get('resumen_minutes'):
-                summary = json.loads(reunion_doc['resumen_minutes'])
-            elif reunion_doc.get('resumen'):
+            if reunion_doc.get('resumen'):
                 summary = json.loads(reunion_doc['resumen'])
         except Exception:
             summary = {}
@@ -848,12 +830,10 @@ def send_acta_pdf_email(reunion_id: str):
         if not reunion_doc:
             return jsonify({"error": "Reunión no encontrada."}), 404
 
-        # Parse minutes summary (prefer one-shot minutes)
+        # Parse summary
         summary = {}
         try:
-            if reunion_doc.get('resumen_minutes'):
-                summary = json.loads(reunion_doc['resumen_minutes'])
-            elif reunion_doc.get('resumen'):
+            if reunion_doc.get('resumen'):
                 summary = json.loads(reunion_doc['resumen'])
         except Exception:
             summary = {}
@@ -953,12 +933,10 @@ def send_acta_pdf_email_upload(reunion_id: str):
         if not pdf_bytes:
             return jsonify({"error": "El PDF está vacío."}), 400
 
-        # Parse minutes summary to build minutes metadata (title/date)
+        # Parse summary to build minutes metadata (title/date)
         summary = {}
         try:
-            if reunion_doc.get('resumen_minutes'):
-                summary = json.loads(reunion_doc['resumen_minutes'])
-            elif reunion_doc.get('resumen'):
+            if reunion_doc.get('resumen'):
                 summary = json.loads(reunion_doc['resumen'])
         except Exception:
             summary = {}
@@ -1220,11 +1198,7 @@ def upload_and_process_directly():
 
     # 3. Lanzar el proceso de análisis completo en segundo plano
     #    (Esta es la parte clave que se hace de inmediato)
-    try:
-        threading.Thread(target=_process_audio_and_generate_summary, args=(file_path, unique_id), daemon=True).start()
-    except Exception as e:
-        print(f"Error iniciando hilo de análisis: {e}")
-        _process_audio_and_generate_summary(file_path, unique_id)
+    _process_audio_and_generate_summary(file_path, unique_id)
 
     print(f"Archivo subido {unique_id}. Análisis directo iniciado en segundo plano.")
     
