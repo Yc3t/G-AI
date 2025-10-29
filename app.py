@@ -19,6 +19,7 @@ import json
 import uuid
 import re
 from datetime import datetime, timedelta
+import threading
 from typing import Any
 
 # Librerías de terceros (instaladas con pip)
@@ -523,7 +524,12 @@ def process_final_audio():
     db.reuniones.update_one({"id": reunion_id}, {"$set": {"audio_path": file_path}})
 
     # Lanza el proceso de análisis en segundo plano.
-    _process_audio_and_generate_summary(file_path, reunion_id)
+    try:
+        threading.Thread(target=_process_audio_and_generate_summary, args=(file_path, reunion_id), daemon=True).start()
+    except Exception as e:
+        print(f"Error iniciando hilo de análisis: {e}")
+        # En caso extremo, ejecutar sincrónicamente (puede tardar)
+        _process_audio_and_generate_summary(file_path, reunion_id)
 
     print(f"Audio para la reunión {reunion_id} guardado. Análisis iniciado en segundo plano.")
     return jsonify({"reunion_id": reunion_id, "message": "Procesamiento iniciado."}), 200
@@ -1214,7 +1220,11 @@ def upload_and_process_directly():
 
     # 3. Lanzar el proceso de análisis completo en segundo plano
     #    (Esta es la parte clave que se hace de inmediato)
-    _process_audio_and_generate_summary(file_path, unique_id)
+    try:
+        threading.Thread(target=_process_audio_and_generate_summary, args=(file_path, unique_id), daemon=True).start()
+    except Exception as e:
+        print(f"Error iniciando hilo de análisis: {e}")
+        _process_audio_and_generate_summary(file_path, unique_id)
 
     print(f"Archivo subido {unique_id}. Análisis directo iniciado en segundo plano.")
     
