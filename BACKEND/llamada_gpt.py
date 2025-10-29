@@ -580,6 +580,99 @@ def gpt(transcripcion_filename: str, participants: List[str], provider=None):
     return  # Fin de la función gpt una vez guardado resumen.json
 
 
+def gpt_minutes_one_shot(transcripcion_filename: str, participants: List[str], provider=None):
+    """Generate a structured minutes JSON in one shot from the full transcript.
+
+    Writes 'resumen_minutes.json' with the same schema as StructuredResponse.
+    """
+    structured_client = instructor.patch(create_chat_client(provider))
+    model = get_default_model(provider)
+
+    try:
+        with open(transcripcion_filename, "r", encoding="utf-8") as f:
+            full_text = f.read()
+    except FileNotFoundError:
+        print(f"[GPT-minutes] Transcript file {transcripcion_filename} not found.")
+        empty = StructuredResponse(
+            metadata=Metadata(title="Acta de Reunión"),
+            main_points=[],
+            detailed_summary={},
+            tasks_and_objectives=[]
+        )
+        with open("resumen_minutes.json", "w", encoding="utf-8") as fw:
+            fw.write(empty.model_dump_json(indent=2, exclude_none=True))
+        return
+
+    # Compute last timestamp and estimated total minutes
+    def _last_mmss_and_minutes(text: str) -> tuple[str, int]:
+        mmss = "00:00"
+        seconds = 0
+        try:
+            for m in re.finditer(r"\[(\d{2}):(\d{2})\]", text):
+                mm = int(m.group(1)); ss = int(m.group(2))
+                seconds = mm * 60 + ss
+                mmss = f"{mm:02d}:{ss:02d}"
+        except Exception:
+            pass
+        return mmss, max(0, seconds // 60)
+
+    final_ts, total_min = _last_mmss_and_minutes(full_text)
+    min_points = max(4, total_min // 5 + 1)
+
+    # Build prompts
+    system_main = prompts.structured_summary_system_prompt(participants)
+    system_extra = prompts.structured_summary_dynamic_prompt(final_ts, total_min, min_points)
+    user_prompt = prompts.structured_summary_user_prompt_full(full_text)
+
+    # Call LLM with tool schema to enforce JSON format
+    try:
+        resp = structured_client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_main},
+                {"role": "system", "content": system_extra},
+                {"role": "user", "content": user_prompt},
+            ],
+            tools=[{
+                "type": "function",
+                "function": {
+                    "name": "format_meeting_summary",
+                    "description": "Formats the meeting transcript into a structured summary.",
+                    "parameters": StructuredResponse.model_json_schema()
+                }
+            }],
+            tool_choice={"type": "function", "function": {"name": "format_meeting_summary"}}
+        )
+
+        tool_call = resp.choices[0].message.tool_calls[0]
+        import json as _json
+        json_dict = _json.loads(tool_call.function.arguments)
+
+        # Minimal repair to ensure expected shapes
+        if not isinstance(json_dict.get("metadata"), dict):
+            json_dict["metadata"] = {"title": "Acta de Reunión", "participants": participants or []}
+        if not isinstance(json_dict.get("main_points"), list):
+            json_dict["main_points"] = []
+        if json_dict.get("detailed_summary") is None:
+            json_dict["detailed_summary"] = {}
+        if not isinstance(json_dict.get("tasks_and_objectives"), list):
+            json_dict["tasks_and_objectives"] = []
+
+        validated = StructuredResponse.model_validate(json_dict)
+    except Exception as e:
+        print(f"[GPT-minutes] Error generating one-shot minutes: {e}")
+        validated = StructuredResponse(
+            metadata=Metadata(title="Acta de Reunión"),
+            main_points=[],
+            detailed_summary={},
+            tasks_and_objectives=[]
+        )
+
+    with open("resumen_minutes.json", "w", encoding="utf-8") as f:
+        f.write(validated.model_dump_json(indent=2, exclude_none=True))
+    print("[GPT-minutes] Acta (one-shot) guardada en 'resumen_minutes.json'.")
+
+
 def extract_names_from_text(transcript_text: str, provider=None) -> list[str]:
     print("[GPT] Iniciando extracción de nombres...")
     

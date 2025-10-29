@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from BACKEND.llamada_whisper import transcribe_audio_structured
-from BACKEND.llamada_gpt import gpt
+from BACKEND.llamada_gpt import gpt, gpt_minutes_one_shot
 
 
 def _build_transcript_with_timestamps(structured_json_path: str) -> str:
@@ -63,20 +63,30 @@ def process_audio_and_generate_summary(db, audio_file_path: str, reunion_id: str
     with open(temp_gpt_input_file, 'w', encoding='utf-8') as f:
         f.write(texto_con_timestamps)
 
-    # 5. Run GPT to produce resumen.json
+    # 5. Run GPT (chunked) to produce resumen.json for summary tab
     gpt(temp_gpt_input_file, participants=participants, provider=provider)
 
-    # 6. Load resumen and update DB
+    # 5b. Run GPT (one-shot) to produce resumen_minutes.json for minutes (acta)
+    gpt_minutes_one_shot(temp_gpt_input_file, participants=participants, provider=provider)
+
+    # 6. Load both summaries and update DB
     acta_data = _cargar_json('resumen.json', {})
+    minutes_data = _cargar_json('resumen_minutes.json', {})
     db.reuniones.update_one(
         {"id": reunion_id},
-        {"$set": {"transcripcion": texto_con_timestamps, "resumen": json.dumps(acta_data, ensure_ascii=False)}}
+        {"$set": {
+            "transcripcion": texto_con_timestamps,
+            "resumen": json.dumps(acta_data, ensure_ascii=False),
+            "resumen_minutes": json.dumps(minutes_data, ensure_ascii=False)
+        }}
     )
 
     # 7. Cleanup temp files
     try:
         if os.path.exists('resumen.json'):
             os.remove('resumen.json')
+        if os.path.exists('resumen_minutes.json'):
+            os.remove('resumen_minutes.json')
         if os.path.exists(temp_gpt_input_file):
             os.remove(temp_gpt_input_file)
     except Exception:

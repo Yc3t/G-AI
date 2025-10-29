@@ -135,6 +135,13 @@ def structured_summary_user_prompt(chunk_text: str) -> str:
     return f"Genera/continúa el acta estructurado en JSON para el siguiente fragmento con timestamps:\n\n{chunk_text}\n\nJSON:"
 
 
+def structured_summary_user_prompt_full(transcript_text: str) -> str:
+    return (
+        "Genera el acta estructurado en JSON para la transcripción completa con timestamps a continuación. "
+        "Sigue exactamente la misma estructura y requisitos indicados en los mensajes del sistema.\n\n"
+        f"{transcript_text}\n\nJSON:"
+    )
+
 def participant_extraction_messages(transcript_text: str) -> List[Message]:
     system_prompt = (
         "Eres un asistente experto en analizar textos. Tu unica tarea es leer la siguiente transcripcion y extraer los nombres de las personas que se presentan. "
