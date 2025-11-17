@@ -681,12 +681,13 @@ export const MeetingAnalysisPage: React.FC = () => {
                             const isExpanded = expandedPoints.has(toggleId)
 
                             return (
-                              <div
+                              <button
                                 key={toggleId}
-                                className={`border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:bg-gray-50 transition cursor-pointer ${
+                                type="button"
+                                onClick={() => togglePoint(toggleId)}
+                                className={`w-full text-left border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:bg-gray-50 transition ${
                                   isExpanded ? 'ring-1 ring-primary-100' : ''
                                 }`}
-                                onClick={() => togglePoint(toggleId)}
                               >
                                 <div className="flex items-start justify-between gap-3">
                                   <div className="flex items-start space-x-3">
@@ -697,15 +698,15 @@ export const MeetingAnalysisPage: React.FC = () => {
                                       <div className="flex flex-wrap items-baseline gap-2">
                                         <p className="text-sm font-semibold text-gray-900">{point.title}</p>
                                         {point.time && (
-                                          <button
+                                          <span
                                             onClick={(e) => {
                                               e.stopPropagation()
                                               seekToTime(point.time!)
                                             }}
-                                            className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                                            className="text-xs text-primary-600 hover:text-primary-700 font-medium cursor-pointer"
                                           >
                                             {point.time}
-                                          </button>
+                                          </span>
                                         )}
                                       </div>
                                       {hasDetail && !isExpanded && (
@@ -714,16 +715,16 @@ export const MeetingAnalysisPage: React.FC = () => {
                                     </div>
                                   </div>
                                   {hasDetail && (
-                                    <button
+                                    <span
                                       onClick={(e) => {
                                         e.stopPropagation()
                                         togglePoint(toggleId)
                                       }}
-                                      className="text-gray-500 hover:text-gray-700"
+                                      className="text-gray-500 hover:text-gray-700 cursor-pointer"
                                       aria-label="Mostrar detalles del punto"
                                     >
                                       {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                                    </button>
+                                    </span>
                                   )}
                                 </div>
                                 {hasDetail && isExpanded && detail && (
@@ -731,7 +732,7 @@ export const MeetingAnalysisPage: React.FC = () => {
                                     {renderDetailBullets(detail.content)}
                                   </div>
                                 )}
-                              </div>
+                              </button>
                             )
                           })}
                     </div>
