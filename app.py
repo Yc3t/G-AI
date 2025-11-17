@@ -296,9 +296,22 @@ def get_reunion_by_id(reunion_id: str):
                     text = match.group(3) if match else line.strip()
                     segments.append({"id": i, "start": start_time, "text": text})
 
-        # Build minutes (on-the-fly)
-        minutes_obj = compose_minutes(reunion_doc, summary_data)
-        print(f"[DEBUG app.py] Minutes composed. tasks_and_objectives in minutes: {minutes_obj.get('tasks_and_objectives', 'NOT FOUND')}")
+        # Load minutes (either from new 'minutes' field or fallback to old summary-based approach)
+        minutes_data = {}
+        try:
+            if reunion_doc.get('minutes'):
+                minutes_data = json.loads(reunion_doc['minutes'])
+        except Exception:
+            minutes_data = {}
+        
+        # Compose minutes (from new minutes_data or fallback to summary_data)
+        if minutes_data:
+            minutes_obj = compose_minutes(reunion_doc, minutes_data)
+            print(f"[DEBUG app.py] Minutes composed from 'minutes' field. tasks_and_objectives: {len(minutes_obj.get('tasks_and_objectives', []))} items")
+        else:
+            # Fallback: compose from summary for backward compatibility
+            minutes_obj = compose_minutes(reunion_doc, summary_data)
+            print(f"[DEBUG app.py] Minutes composed from 'resumen' field (fallback). tasks_and_objectives: {len(minutes_obj.get('tasks_and_objectives', []))} items")
         
         # Preparar participantes (nuevo campo 'participants') enriquecidos con emails desde contactos
         participants_out = []
@@ -705,13 +718,21 @@ def send_summary_email(reunion_id: str):
         if not reunion_doc:
             return jsonify({"error": "Reunión no encontrada."}), 404
 
-        # Parse summary
-        summary = {}
+        # Parse minutes (prefer new minutes field, fallback to summary)
+        minutes_data = {}
         try:
-            if reunion_doc.get('resumen'):
-                summary = json.loads(reunion_doc['resumen'])
+            if reunion_doc.get('minutes'):
+                minutes_data = json.loads(reunion_doc['minutes'])
         except Exception:
-            summary = {}
+            pass
+        
+        if not minutes_data:
+            # Fallback to summary for backward compatibility
+            try:
+                if reunion_doc.get('resumen'):
+                    minutes_data = json.loads(reunion_doc['resumen'])
+            except Exception:
+                minutes_data = {}
 
         # Participants with email
         participants = []
@@ -727,62 +748,9 @@ def send_summary_email(reunion_id: str):
         if not emailer.is_configured():
             return jsonify({"error": "SMTP no configurado. Defina SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM."}), 500
 
-        # Use minutes for email content
-        # Reuse the same composer as in GET
-        def _last_timestamp_seconds(text: str) -> int:
-            try:
-                lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
-                for ln in reversed(lines):
-                    m = re.match(r'\[(\d{2}):(\d{2})\]', ln)
-                    if m:
-                        return int(m.group(1)) * 60 + int(m.group(2))
-            except Exception:
-                pass
-            return 0
-
-        def compose_minutes(doc: dict, summary_obj: dict) -> dict:
-            minutes = {"metadata": {}, "participants": [], "key_points": [], "details": {}}
-            title_local = summary_obj.get('metadata', {}).get('title') if isinstance(summary_obj.get('metadata'), dict) else None
-            if not title_local:
-                title_local = doc.get('titulo') or 'Acta de Reunión'
-            minutes['metadata']['title'] = title_local
-            fecha = doc.get('fecha_de_subida')
-            try:
-                if isinstance(fecha, datetime):
-                    minutes['metadata']['date'] = fecha.isoformat()
-                else:
-                    minutes['metadata']['date'] = str(fecha) if fecha else None
-            except Exception:
-                minutes['metadata']['date'] = None
-            minutes['metadata']['meeting_id'] = doc.get('id')
-            text = doc.get('transcripcion') or ''
-            if isinstance(text, str) and text.strip():
-                minutes['metadata']['duration_seconds'] = _last_timestamp_seconds(text)
-            if isinstance(doc.get('participants'), list):
-                for p in doc.get('participants'):
-                    if isinstance(p, dict) and p.get('name'):
-                        entry = {"name": p['name']}
-                        if p.get('email'): entry['email'] = p['email']
-                        minutes['participants'].append(entry)
-            elif isinstance(doc.get('participantes'), list):
-                for n in doc.get('participantes'):
-                    n_str = str(n).strip()
-                    if n_str: minutes['participants'].append({"name": n_str})
-            mps = summary_obj.get('main_points') if isinstance(summary_obj, dict) else None
-            if isinstance(mps, list):
-                for mp in mps:
-                    if not isinstance(mp, dict): continue
-                    minutes['key_points'].append({'id': mp.get('id'), 'title': mp.get('title'), 'time': mp.get('time')})
-            det = summary_obj.get('detailed_summary') if isinstance(summary_obj, dict) else None
-            if isinstance(det, dict):
-                minutes['details'] = {
-                    k: {'content': (v.get('content') if isinstance(v, dict) else ''), 'key_timestamps': (v.get('key_timestamps') if isinstance(v, dict) else [])}
-                    for k, v in det.items()
-                }
-            # action_items logic removed per user request
-            return minutes
-
-        minutes_obj = compose_minutes(reunion_doc, summary)
+        # Use imported compose_minutes from services.minutes module
+        from BACKEND.services.minutes import compose_minutes as compose_minutes_service
+        minutes_obj = compose_minutes_service(reunion_doc, minutes_data)
 
         title = minutes_obj.get('metadata', {}).get('title') or 'Acta de Reunión'
         subject = f"Acta de la reunión: {title}"
@@ -830,16 +798,25 @@ def send_acta_pdf_email(reunion_id: str):
         if not reunion_doc:
             return jsonify({"error": "Reunión no encontrada."}), 404
 
-        # Parse summary
-        summary = {}
+        # Parse minutes for metadata (prefer minutes, fallback to summary)
+        minutes_data = {}
         try:
-            if reunion_doc.get('resumen'):
-                summary = json.loads(reunion_doc['resumen'])
+            if reunion_doc.get('minutes'):
+                minutes_data = json.loads(reunion_doc['minutes'])
         except Exception:
-            summary = {}
+            pass
+        
+        if not minutes_data:
+            # Fallback to summary for backward compatibility
+            try:
+                if reunion_doc.get('resumen'):
+                    minutes_data = json.loads(reunion_doc['resumen'])
+            except Exception:
+                minutes_data = {}
 
         # Compose minutes data for PDF generation
-        minutes_obj = compose_minutes(reunion_doc, summary)
+        from BACKEND.services.minutes import compose_minutes as compose_minutes_service
+        minutes_obj = compose_minutes_service(reunion_doc, minutes_data)
 
         # Get participants with emails
         participants = []
@@ -933,15 +910,23 @@ def send_acta_pdf_email_upload(reunion_id: str):
         if not pdf_bytes:
             return jsonify({"error": "El PDF está vacío."}), 400
 
-        # Parse summary to build minutes metadata (title/date)
-        summary = {}
+        # Parse minutes to build metadata (title/date) - prefer minutes, fallback to summary
+        minutes_data = {}
         try:
-            if reunion_doc.get('resumen'):
-                summary = json.loads(reunion_doc['resumen'])
+            if reunion_doc.get('minutes'):
+                minutes_data = json.loads(reunion_doc['minutes'])
         except Exception:
-            summary = {}
+            pass
+        
+        if not minutes_data:
+            # Fallback to summary for backward compatibility
+            try:
+                if reunion_doc.get('resumen'):
+                    minutes_data = json.loads(reunion_doc['resumen'])
+            except Exception:
+                minutes_data = {}
 
-        minutes_obj = compose_minutes(reunion_doc, summary)
+        minutes_obj = compose_minutes(reunion_doc, minutes_data)
 
         # Recipients with email
         participants = []

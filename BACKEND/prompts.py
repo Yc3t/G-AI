@@ -92,13 +92,9 @@ La transcripcion proporcionada contiene **inline timestamps** en formato `[MM:SS
     *   Cada vinieta debe contener informacion ESPECIFICA y UNICA de ese punto. **NO repitas** la misma informacion en diferentes puntos. Si un contenido ya fue mencionado antes, **omite** volver a incluirlo.
     *   Usa Markdown para resaltar palabras clave (**negritas** o *cursivas*) cuando aporte claridad.
 
-7.  **Tareas y Objetivos (`tasks_and_objectives`) - CRÍTICO**:
-    *   **SIEMPRE** incluye una lista `tasks_and_objectives` con elementos que representen tareas u objetivos mencionados en la reunion.
-    *   Busca activamente en la transcripcion cualquier mencion de: acciones a realizar, tareas asignadas, compromisos adquiridos, objetivos planteados, proximos pasos, seguimientos pendientes, entregas acordadas.
-    *   Cada elemento debe ser un objeto con SOLO estos campos: `task` (string, el nombre/título de la tarea u objetivo) y `description` (string, breve descripcion que incluya responsable si se menciona).
-    *   Extrae esta informacion del contenido de la transcripcion de forma exhaustiva.
-    *   Si realmente no hay tareas u objetivos explicitos, genera al menos objetivos implicitos basados en los temas discutidos.
-    *   NUNCA dejes esta lista completamente vacia si hay contenido relevante en la reunion.
+7.  **NO generes tareas ni objetivos**:
+    *   El campo `tasks_and_objectives` puede estar vacio o tener una lista vacia `[]`.
+    *   NO es necesario extraer tareas, acciones ni compromisos en el resumen estructurado (esto se hace en las actas).
 
 Sigue rigurosamente la estructura especificada.
 """
@@ -114,8 +110,7 @@ def followup_structured_prompt_with_context(previous_points: list) -> str:
     """Generate followup prompt with context of what was already covered."""
     if not previous_points:
         return (
-            "Genera SOLO los campos 'main_points', 'detailed_summary' y 'tasks_and_objectives' (sin repetir metadata) para el fragmento siguiente de la reunion. "
-            "**IMPORTANTE:** Busca activamente tareas, objetivos, compromisos y acciones acordadas en este fragmento para incluir en 'tasks_and_objectives'. "
+            "Genera SOLO los campos 'main_points' y 'detailed_summary' (sin repetir metadata ni tasks_and_objectives) para el fragmento siguiente de la reunion. "
             "Asegurate de seguir la misma estructura JSON exacta."
         )
     
@@ -124,9 +119,8 @@ def followup_structured_prompt_with_context(previous_points: list) -> str:
     
     return (
         f"Ya se han cubierto los siguientes temas en fragmentos anteriores:\n{covered_topics}\n\n"
-        "Ahora, genera SOLO los campos 'main_points', 'detailed_summary' y 'tasks_and_objectives' (sin repetir metadata) para el fragmento siguiente de la reunion. "
+        "Ahora, genera SOLO los campos 'main_points' y 'detailed_summary' (sin repetir metadata ni tasks_and_objectives) para el fragmento siguiente de la reunion. "
         "**CRITICO:** NO repitas ni reformules los temas ya cubiertos arriba. Enfocate UNICAMENTE en informacion NUEVA y diferente de este fragmento. "
-        "**IMPORTANTE:** Busca activamente tareas, objetivos, compromisos y acciones acordadas en este fragmento para incluir en 'tasks_and_objectives'. "
         "Asegurate de seguir la misma estructura JSON exacta."
     )
 
@@ -144,6 +138,124 @@ def participant_extraction_messages(transcript_text: str) -> List[Message]:
     user_prompt = (
         "Transcripcion:\n'''\n{transcripcion}\n'''\n\nExtrae los nombres en el formato JSON solicitado."
     ).format(transcripcion=transcript_text)
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def minutes_generation_system_prompt(participants: List[str]) -> str:
+    """System prompt for one-shot minutes generation with detailed sections."""
+    formatted_participants = ", ".join(participants) if participants else "No especificados"
+    return f"""\
+Eres un asistente experto en analisis de reuniones. Tu tarea es generar el acta de reunion (minutes) completa y detallada en formato JSON a partir de una transcripcion.
+
+**Asistentes:** {formatted_participants}
+
+La transcripcion contiene **inline timestamps** en formato `[MM:SS]` que debes usar para los campos de tiempo.
+
+**REQUISITOS OBLIGATORIOS:**
+
+1. **Objetivo (`objective`)**:
+   - Sintetiza en 1-3 frases el objetivo principal de la reunion.
+   - Debe ser claro, conciso y profesional.
+
+2. **Metadatos (`metadata`)**:
+   - `title`: Titulo descriptivo y profesional de la reunion.
+   - `participants`: Lista de nombres de los participantes (usar la lista proporcionada).
+
+3. **Puntos Principales (`main_points`)**:
+   - Lista de 5-10 puntos clave, distribuidos a lo largo de toda la reunion.
+   - Cada punto:
+     * `id`: identificador unico (ej: "point_1", "point_2")
+     * `title`: titulo conciso (max 12 palabras)
+     * `time`: timestamp "MM:SS" (NUNCA "00:00" salvo que sea el inicio real)
+   - Cubrir toda la duracion; el ultimo punto debe estar cerca del final.
+
+4. **Detalles de Puntos (`details`)** - **MUY IMPORTANTE**:
+   - Objeto cuyas claves son los `id` de `main_points`.
+   - Cada entrada debe tener:
+     * `title`: mismo titulo del punto principal
+     * `content`: **UNA SOLA CADENA** con viñetas detalladas del contenido tratado en ese punto:
+       - Cada viñeta empieza con `- ` (guion + espacio)
+       - Se permiten subviñetas SOLO si aportan contexto crítico (max 1 por viñeta)
+       - **Solo 2 o 3 viñetas por punto**, cada una de 1 frase concisa y sin redundancias
+       - Incluye datos especificos (numeros, decisiones, incidencias), pero evita narrativas largas
+       - Usa formato profesional y tecnico cuando corresponda
+       - Separa las viñetas con saltos de linea: `\\n`
+   - NO menciones nombres propios ni frases como “Jeff dijo” o “María comentó”; describe los hechos de manera impersonal (“se acordó”, “el equipo técnico informó”).
+   - El `content` debe ser similar al ejemplo del usuario: detallado, estructurado, con subapartados si es necesario.
+
+5. **Tareas y Objetivos (`tasks_and_objectives`)**:
+   - Lista exhaustiva de todas las acciones, tareas, compromisos y objetivos acordados.
+   - Busca activamente: acciones a realizar, compromisos, proximos pasos, seguimientos, entregas.
+   - Cada elemento:
+     * `task`: nombre/titulo de la tarea (string conciso)
+      * `description`: descripcion detallada redactada de forma impersonal, sin mencionar nombres propios.
+   - Si no hay tareas explicitas, genera objetivos implicitos.
+   - NUNCA dejes vacia esta lista si hay contenido relevante.
+
+**FORMATO DE SALIDA:**
+- Devuelve SOLO un objeto JSON valido.
+- NO incluyas comentarios ni texto adicional.
+- El acta DEBE estar en **espanol**.
+- El campo `content` en `details` debe ser UNA CADENA con viñetas separadas por `\\n`, NO una lista JSON.
+
+Estructura JSON esperada:
+```json
+{{
+  "objective": "string",
+  "metadata": {{
+    "title": "string",
+    "participants": ["string"]
+  }},
+  "main_points": [
+    {{
+      "id": "string",
+      "title": "string",
+      "time": "MM:SS"
+    }}
+  ],
+  "details": {{
+    "point_1": {{
+      "title": "string",
+      "content": "- Detalle principal 1\\n  - Subdetalle especifico\\n- Detalle principal 2\\n- Detalle principal 3"
+    }}
+  }},
+  "tasks_and_objectives": [
+    {{
+      "task": "string",
+      "description": "string"
+    }}
+  ]
+}}
+```
+"""
+
+
+def minutes_generation_user_prompt(transcript_text: str) -> str:
+    """User prompt for minutes generation."""
+    return f"Genera el acta de reunion (minutes) en formato JSON para la siguiente transcripcion con timestamps:\n\n{transcript_text}\n\nJSON:"
+
+
+def minutes_details_messages(point_title: str, segment_text: str) -> List[Message]:
+    """Prompt to generate detailed bullet content for a specific main point from a transcript segment."""
+    system_prompt = (
+        "Genera contenido DETALLADO para el apartado de 'details' de un punto principal del acta.\n"
+        "REQUISITOS:\n"
+        "- Devuelve SOLO una cadena de texto con viñetas, NO JSON.\n"
+        "- Cada viñeta empieza con '- ' (guion + espacio).\n"
+        "- Solo 2 o 3 viñetas; cada una debe ser una frase breve y directa.\n"
+        "- Subviñetas solo si son imprescindibles (máximo una por viñeta).\n"
+        "- NO incluyas nombres propios ni frases como 'X dijo'; describe todo de forma impersonal.\n"
+        "- Incluye numeros, decisiones, incidencias, propuestas, cuando aparezcan en el segmento.\n"
+        "- Lenguaje profesional en español."
+    )
+    user_prompt = (
+        f"Título del punto: {point_title}\n\n"
+        f"Segmento de la transcripción (con timestamps):\n''' \n{segment_text}\n'''\n\n"
+        "Devuelve SOLO la cadena de viñetas:"
+    )
     return [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},

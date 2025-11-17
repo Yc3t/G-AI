@@ -5,13 +5,32 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak, ListFlowable, ListItem
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.pdfgen import canvas as canvas_module
 import os
 
 
 BRAND_COLOR = colors.HexColor('#17345C')  # hsl(222, 72%, 21%)
+
+
+def _extract_bullet_lines(content: str, max_items: int = 3):
+    """Return up to max_items bullet tuples (text, indent_level)."""
+    lines = []
+    for raw in (content or "").splitlines():
+        trimmed = raw.rstrip()
+        if not trimmed.strip():
+            continue
+        stripped = trimmed.lstrip()
+        if stripped.startswith("-"):
+            bullet = stripped[1:].strip()
+            indent = 1 if trimmed.startswith("  -") else 0
+            lines.append((bullet, indent))
+        else:
+            lines.append((trimmed, 0))
+        if len(lines) >= max_items:
+            break
+    return lines
 
 
 class HeaderCanvas(canvas_module.Canvas):
@@ -106,6 +125,16 @@ def generate_acta_pdf(minutes_data: Dict[str, Any]) -> bytes:
         fontName='Helvetica-Bold'
     )
     normal_style = styles['Normal']
+    normal_style.leading = 12
+    detail_heading_style = ParagraphStyle(
+        'DetailHeading',
+        parent=normal_style,
+        fontSize=10,
+        fontName='Helvetica-Bold',
+        spaceAfter=4,
+        spaceBefore=8,
+        textColor=colors.black
+    )
 
     # Meeting metadata table (Title and Duration in one row) - matching frontend exactly
     meeting_title = metadata.get('title', 'Sin título')
@@ -134,6 +163,14 @@ def generate_acta_pdf(minutes_data: Dict[str, Any]) -> bytes:
     ]))
     elements.append(metadata_table)
     elements.append(Spacer(1, 0.3*inch))
+
+    # Objective
+    objective_text = minutes_data.get('objective')
+    if objective_text:
+        elements.append(Paragraph("Objetivo", heading_style))
+        elements.append(Spacer(1, 0.05*inch))
+        elements.append(Paragraph(objective_text, normal_style))
+        elements.append(Spacer(1, 0.25*inch))
 
     # Participants section
     participants = minutes_data.get('participants', [])
@@ -194,6 +231,45 @@ def generate_acta_pdf(minutes_data: Dict[str, Any]) -> bytes:
         ]))
         elements.append(key_points_table)
         elements.append(Spacer(1, 0.25*inch))
+
+    # Detailed Topics section (details per key point)
+    details_map = minutes_data.get('details') or {}
+    if details_map:
+        elements.append(Paragraph("Temas tratados", heading_style))
+        elements.append(Spacer(1, 0.1*inch))
+        for idx, kp in enumerate(key_points or [], 1):
+            kp_id = kp.get('id') if isinstance(kp, dict) else None
+            detail = details_map.get(kp_id) if kp_id else None
+            if not detail or not detail.get('content'):
+                continue
+            detail_title = detail.get('title') or kp.get('title') or f"Punto {idx}"
+            time_txt = kp.get('time')
+            heading_text = f"{idx}. {detail_title}"
+            if time_txt:
+                heading_text += f" ({time_txt})"
+            elements.append(Paragraph(heading_text, detail_heading_style))
+
+            bullet_lines = _extract_bullet_lines(detail.get('content', ''))
+            if bullet_lines:
+                list_items = []
+                for text, indent in bullet_lines:
+                    list_items.append(
+                        ListItem(
+                            Paragraph(text, normal_style),
+                            leftIndent=16 + indent * 8,
+                            bulletFontName='Helvetica',
+                            bulletFontSize=9
+                        )
+                    )
+                elements.append(ListFlowable(
+                    list_items,
+                    bulletType='bullet',
+                    bulletFontName='Helvetica',
+                    bulletFontSize=9,
+                    leftIndent=8,
+                    spaceBefore=0,
+                    spaceAfter=6
+                ))
 
     # Tasks and Objectives section (task + description only)
     tasks = minutes_data.get('tasks_and_objectives', [])

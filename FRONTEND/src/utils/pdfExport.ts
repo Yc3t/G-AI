@@ -109,6 +109,18 @@ const buildActaDoc = async (meeting: Meeting): Promise<jsPDF | null> => {
 
   yPos = (doc as any).lastAutoTable.finalY + 12
 
+  if (meeting.minutes.objective) {
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Objetivo', 15, yPos)
+    yPos += 5
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    const objectiveLines = doc.splitTextToSize(meeting.minutes.objective, 180)
+    doc.text(objectiveLines, 15, yPos)
+    yPos += objectiveLines.length * 5 + 8
+  }
+
   // Participants
   if (meeting.minutes.participants.length > 0) {
     doc.setFontSize(12)
@@ -190,6 +202,90 @@ const buildActaDoc = async (meeting: Meeting): Promise<jsPDF | null> => {
     })
 
     yPos = (doc as any).lastAutoTable.finalY + 10
+  }
+
+  const detailEntries = meeting.minutes.key_points
+    .map((kp, idx) => {
+      const detail = meeting.minutes.details?.[kp.id]
+      if (!detail || !detail.content?.trim()) return null
+      return {
+        index: idx + 1,
+        title: detail.title || kp.title,
+        time: kp.time,
+        content: detail.content
+      }
+    })
+    .filter(Boolean) as Array<{ index: number; title: string; time?: string; content: string }>
+
+  if (detailEntries.length > 0) {
+    if (yPos > 250) {
+      doc.addPage()
+      yPos = 20
+    }
+
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Temas tratados', 15, yPos)
+    yPos += 6
+
+    detailEntries.forEach(entry => {
+      if (yPos > 270) {
+        doc.addPage()
+        yPos = 20
+      }
+
+      doc.setFontSize(11)
+      doc.setFont('helvetica', 'bold')
+      const header = `${entry.index}. ${entry.title}${entry.time ? ` (${entry.time})` : ''}`
+      doc.text(header, 15, yPos)
+      yPos += 5
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      const bulletLines = entry.content
+        .split('\n')
+        .map(line => {
+          const trimmed = line.replace(/\s+$/, '')
+          if (!trimmed.trim()) return null
+          const trimmedLeft = trimmed.replace(/^\s+/, '')
+          if (!trimmedLeft.startsWith('-')) {
+            return { text: trimmedLeft, indent: 0, isBullet: false }
+          }
+          const bulletText = trimmedLeft.replace(/^-\s*/, '').trim()
+          const isSub = trimmed.startsWith('  -')
+          return { text: bulletText, indent: isSub ? 8 : 0, isBullet: true }
+        })
+        .filter((item): item is { text: string; indent: number; isBullet: boolean } => !!item)
+
+      bulletLines.forEach(line => {
+        if (yPos > 280) {
+          doc.addPage()
+          yPos = 20
+        }
+
+        const bulletX = 20 + line.indent
+        const textX = bulletX + (line.isBullet ? 5 : 0)
+        const maxWidth = 170 - line.indent
+        const wrappedText = doc.splitTextToSize(line.text, maxWidth)
+
+        if (line.isBullet) {
+          doc.setFont('helvetica', 'bold')
+          doc.text('•', bulletX, yPos)
+          doc.setFont('helvetica', 'normal')
+        }
+
+        wrappedText.forEach((wrapLine, idx) => {
+          if (yPos > 280) {
+            doc.addPage()
+            yPos = 20
+          }
+          doc.text(wrapLine, idx === 0 ? textX : bulletX + 5, yPos)
+          yPos += 4
+        })
+        yPos += 2
+      })
+      yPos += 4
+    })
   }
 
   // Tasks and Objectives (task + description only)

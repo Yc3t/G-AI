@@ -20,7 +20,7 @@ def get_default_model(provider: Optional[str] = None) -> str:
     resolved = _resolve_provider(provider)
     if resolved == "groq":
         return os.getenv("GROQ_MODEL", "moonshotai/kimi-k2-instruct-0905")
-    return os.getenv("GPT_MODEL", "gpt-4o")
+    return os.getenv("GPT_MODEL", "gpt-5.1")
 
 
 def create_chat_client(provider: Optional[str] = None) -> OpenAI:

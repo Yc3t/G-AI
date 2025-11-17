@@ -48,6 +48,12 @@ class StructuredResponse(BaseModel):
     # New: tasks and objectives extracted from the transcript
     tasks_and_objectives: List[ActionItem] = []
 
+# Summary-only schema (no tasks) for structured summary generation
+class StructuredSummaryNoTasks(BaseModel):
+    metadata: Metadata
+    main_points: List[MainPoint]
+    detailed_summary: Optional[Dict[str, DetailedSummaryItem]] = None
+
 
 def dividir_texto(texto, tamano_max=6000):
     """
@@ -192,7 +198,6 @@ def gpt(transcripcion_filename: str, participants: List[str], provider=None):
     # Listas globales para acumular todos los datos necesarios
     global_main_points: List[MainPoint] = []
     global_detailed_summary: Dict[str, DetailedSummaryItem] = {}
-    global_tasks: List[ActionItem] = []
     metadata_final: Optional[Metadata] = None
 
     dynamic_length_prompt = (
@@ -271,7 +276,7 @@ def gpt(transcripcion_filename: str, participants: List[str], provider=None):
         return jd
 
     def call_gpt_structured(chunk_text: str, first_chunk: bool, previous_main_points: list):
-        """Llama al modelo para un fragmento y devuelve StructuredResponse."""
+        """Llama al modelo para un fragmento y devuelve StructuredSummaryNoTasks."""
         if first_chunk:
             extra_system = dynamic_length_prompt_local
         else:
@@ -292,7 +297,7 @@ def gpt(transcripcion_filename: str, participants: List[str], provider=None):
                     "function": {
                         "name": "format_meeting_summary",
                         "description": "Formats the meeting transcript into a structured summary.",
-                        "parameters": StructuredResponse.model_json_schema()
+                        "parameters": StructuredSummaryNoTasks.model_json_schema()
                     }
                 }],
                 tool_choice={"type": "function", "function": {"name": "format_meeting_summary"}}
@@ -301,7 +306,7 @@ def gpt(transcripcion_filename: str, participants: List[str], provider=None):
             import json as _json
             json_dict = _json.loads(tool_call.function.arguments)
             json_dict = repair_json_structure(json_dict)
-            return StructuredResponse.model_validate(json_dict)
+            return StructuredSummaryNoTasks.model_validate(json_dict)
         except Exception as ce:
             print(f"[GPT-struct] Error obteniendo resumen de fragmento: {ce}")
             return None
@@ -469,17 +474,7 @@ def gpt(transcripcion_filename: str, participants: List[str], provider=None):
                             break
                 else:
                     global_detailed_summary[did] = ditem
-        # Merge tasks and objectives
-        try:
-            if isinstance(partial_res.tasks_and_objectives, list) and partial_res.tasks_and_objectives:
-                print(f"[DEBUG llamada_gpt.py] Fragment {idx+1} generated {len(partial_res.tasks_and_objectives)} tasks/objectives")
-                global_tasks.extend(partial_res.tasks_and_objectives)
-            else:
-                print(f"[DEBUG llamada_gpt.py] Fragment {idx+1} generated NO tasks/objectives")
-        except Exception as e:
-            print(f"[DEBUG llamada_gpt.py] Exception merging tasks: {e}")
-            pass
-        print(f"[GPT-struct] Fragmento {idx+1} listo – Total puntos: {len(global_main_points)}, Total tasks: {len(global_tasks)}")
+        print(f"[GPT-struct] Fragmento {idx+1} listo – Total puntos: {len(global_main_points)}")
 
     def _dedupe_main_points_and_details():
         nonlocal global_main_points
@@ -563,17 +558,16 @@ def gpt(transcripcion_filename: str, participants: List[str], provider=None):
     except Exception:
         pass
 
-    final_structured_response = StructuredResponse(
-        metadata=metadata_final,
-        main_points=global_main_points,
-        detailed_summary=global_detailed_summary,
-        tasks_and_objectives=global_tasks
-    )
-
-    print(f"[DEBUG llamada_gpt.py] Final response has {len(global_tasks)} tasks/objectives")
+    final_structured_response = {
+        "metadata": metadata_final.model_dump(exclude_none=True) if metadata_final else {"title": "Acta de Reunión"},
+        "main_points": [mp.model_dump(exclude_none=True) for mp in global_main_points],
+        "detailed_summary": {
+            k: v.model_dump(exclude_none=True) for k, v in (global_detailed_summary or {}).items()
+        }
+    }
 
     with open("resumen.json", "w", encoding="utf-8") as f:
-        f.write(final_structured_response.model_dump_json(indent=2, exclude_none=True))
+        f.write(json.dumps(final_structured_response, ensure_ascii=False, indent=2))
     print("Resumen estructurado completo guardado en 'resumen.json'.")
 
     # Saltamos la lógica antigua tras esta sección (desde "if final_structured_response.main_points:"... )
@@ -602,3 +596,267 @@ def extract_names_from_text(transcript_text: str, provider=None) -> list[str]:
     except Exception as e:
         print(f"Error al extraer nombres con GPT: {e}")
         return []
+
+
+# Pydantic models for one-shot minutes generation
+class MinutesMetadata(BaseModel):
+    title: str
+    participants: List[str] = []
+
+
+class MinutesMainPoint(BaseModel):
+    id: str
+    title: str
+    time: Optional[str] = None  # Format: "MM:SS"
+
+
+class MinutesDetailItem(BaseModel):
+    title: str
+    content: str = Field(default="", description="Cadena unica con viñetas separadas por \\n")
+
+
+class MinutesActionItem(BaseModel):
+    task: str = Field(..., description="Título de la tarea u objetivo.")
+    description: str = Field(default="", description="Descripción breve de la tarea u objetivo.")
+
+
+class MinutesResponse(BaseModel):
+    objective: Optional[str] = ""
+    metadata: MinutesMetadata
+    main_points: List[MinutesMainPoint]
+    details: Optional[Dict[str, MinutesDetailItem]] = None
+    tasks_and_objectives: List[MinutesActionItem] = []
+
+
+def generate_minutes(transcript_text: str, participants: List[str], provider=None) -> dict:
+    """
+    One-shot minutes generation: generates detailed minutes with main points, details, and tasks.
+    Returns a dict with the minutes structure, does NOT use chunking.
+    """
+    print("[GPT-minutes] Iniciando generación de acta detallada (one-shot)...")
+    
+    client = create_chat_client(provider)
+    model = get_default_model(provider)
+
+    participant_aliases: List[str] = []
+    for name in (participants or []):
+        try:
+            if not name:
+                continue
+            cleaned = str(name).strip()
+            if not cleaned:
+                continue
+            participant_aliases.append(cleaned)
+            parts = [p for p in re.split(r"\s+", cleaned) if len(p) > 2]
+            participant_aliases.extend(parts)
+        except Exception:
+            continue
+
+    def _sanitize_text(value: Optional[str]) -> str:
+        if not value:
+            return ""
+        sanitized = value
+        for alias in participant_aliases:
+            if not alias:
+                continue
+            pattern = re.compile(rf"\b{re.escape(alias)}\b", re.IGNORECASE)
+            sanitized = pattern.sub("un participante", sanitized)
+        sanitized = re.sub(r"(un participante)(\s+un participante)+", r"\1", sanitized, flags=re.IGNORECASE)
+        return sanitized
+
+    def _limit_bullets(value: Optional[str], max_bullets: int = 3) -> str:
+        if not value:
+            return ""
+        lines = [ln.rstrip() for ln in value.splitlines() if ln.strip()]
+        bullets: List[str] = []
+        current = []
+        for line in lines:
+            stripped = line.lstrip()
+            if stripped.startswith("-"):
+                if current:
+                    bullets.append("\n".join(current))
+                current = [stripped]
+            else:
+                if current:
+                    current.append(stripped)
+                else:
+                    current = [f"- {stripped}"]
+        if current:
+            bullets.append("\n".join(current))
+        if not bullets:
+            return value
+        trimmed = bullets[:max_bullets]
+        cleaned = []
+        for block in trimmed:
+            sentences = block.split("\n")
+            head = sentences[0]
+            if len(head) > 180:
+                head = head[:177].rstrip() + "…"
+            rest = sentences[1:2]  # allow at most one sub bullet line
+            cleaned.append("\n".join([head, *rest]))
+        return "\n".join(cleaned)
+    
+    system_prompt = prompts.minutes_generation_system_prompt(participants)
+    user_prompt = prompts.minutes_generation_user_prompt(transcript_text)
+    
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.7
+        )
+        
+        content = response.choices[0].message.content
+        parsed_json = json.loads(content)
+        
+        # Repair details structure if it's a list instead of dict
+        try:
+            det = parsed_json.get("details")
+            if isinstance(det, list):
+                new_det = {}
+                for idx, item in enumerate(det):
+                    if isinstance(item, dict):
+                        key = item.get("id") or f"detail_{idx}"
+                        new_det[str(key)] = {
+                            "title": item.get("title", ""),
+                            "content": item.get("content", "")
+                        }
+                parsed_json["details"] = new_det
+        except Exception:
+            pass
+        
+        # Validate and clean the response
+        minutes_data = MinutesResponse.model_validate(parsed_json)
+
+        # Fallback: ensure details exist and are sufficiently detailed per main point
+        try:
+            lines = transcript_text.splitlines()
+
+            def _last_ts_seconds(ls: List[str]) -> int:
+                for ln in reversed(ls):
+                    m = re.match(r'^\[(\d{2}):(\d{2})\]', ln.strip())
+                    if m:
+                        return int(m.group(1)) * 60 + int(m.group(2))
+                return 10**9
+
+            last_sec = _last_ts_seconds(lines)
+
+            existing_details: Dict[str, Dict[str, str]] = {}
+            if isinstance(minutes_data.details, dict):
+                # Normalize to simple dict[str, dict]
+                for k, v in minutes_data.details.items():
+                    if isinstance(v, dict):
+                        existing_details[str(k)] = {
+                            "title": str(v.get("title", "")),
+                            "content": str(v.get("content", "")),
+                        }
+                    else:
+                        # Pydantic model MinutesDetailItem
+                        try:
+                            existing_details[str(k)] = {
+                                "title": getattr(v, "title", ""),
+                                "content": getattr(v, "content", ""),
+                            }
+                        except Exception:
+                            pass
+
+            # Build/fill details
+            for idx, mp in enumerate(minutes_data.main_points or []):
+                mp_id = mp.id
+                mp_title = mp.title or ""
+                start_sec = time_to_sec(mp.time or "00:00")
+                next_sec = last_sec
+                if idx + 1 < len(minutes_data.main_points):
+                    next_sec = max(start_sec + 1, time_to_sec(minutes_data.main_points[idx + 1].time or "00:00"))
+
+                need_detail = False
+                curr = existing_details.get(mp_id)
+                if not curr:
+                    need_detail = True
+                else:
+                    content_len = len((curr.get("content") or "").strip())
+                    if content_len < 80:  # too short
+                        need_detail = True
+
+                if need_detail:
+                    segment_text = extract_segment_lines(lines, start_sec, next_sec)
+                    # If empty segment, fallback to a small window after start
+                    if not segment_text.strip():
+                        segment_text = "\n".join(lines[:300])
+                    try:
+                        detail_msgs = prompts.minutes_details_messages(mp_title, segment_text)
+                        detail_resp = client.chat.completions.create(
+                            model=model,
+                            messages=detail_msgs,
+                        )
+                        detail_content = (detail_resp.choices[0].message.content or "").strip()
+                        detail_content = _limit_bullets(detail_content, max_bullets=3)
+                        # Basic guard to ensure bullet formatting
+                        if "- " not in detail_content:
+                            detail_content = "- " + detail_content.replace("\n", "\n- ")
+                        existing_details[mp_id] = {
+                            "title": mp_title,
+                            "content": detail_content,
+                        }
+                    except Exception:
+                        # Leave as is if generation fails
+                        pass
+
+            # Build final result dict
+            result = minutes_data.model_dump(exclude_none=True)
+            if existing_details:
+                for entry in existing_details.values():
+                    entry["title"] = _sanitize_text(entry.get("title"))
+                    entry["content"] = _limit_bullets(_sanitize_text(entry.get("content")), max_bullets=3)
+                result["details"] = existing_details
+
+            if result.get("objective"):
+                result["objective"] = _sanitize_text(result.get("objective"))
+
+            for item in result.get("tasks_and_objectives", []):
+                item["task"] = _sanitize_text(item.get("task"))
+                item["description"] = _sanitize_text(item.get("description"))
+
+            details_count = len(existing_details)
+            print(f"[GPT-minutes] Generado: {len(minutes_data.main_points)} puntos principales, {details_count} detalles, {len(minutes_data.tasks_and_objectives)} tareas/objetivos")
+
+            return result
+        except Exception:
+            # If fallback fails, return the validated output
+            result = minutes_data.model_dump(exclude_none=True)
+            if result.get("objective"):
+                result["objective"] = _sanitize_text(result.get("objective"))
+
+            if result.get("details"):
+                for entry in result["details"].values():
+                    entry["title"] = _sanitize_text(entry.get("title"))
+                    entry["content"] = _limit_bullets(_sanitize_text(entry.get("content")), max_bullets=3)
+
+            if result.get("tasks_and_objectives"):
+                for item in result["tasks_and_objectives"]:
+                    item["task"] = _sanitize_text(item.get("task"))
+                    item["description"] = _sanitize_text(item.get("description"))
+
+            details_count = len(result.get("details") or {})
+            print(f"[GPT-minutes] Generado: {len(minutes_data.main_points)} puntos principales, {details_count} detalles, {len(minutes_data.tasks_and_objectives)} tareas/objetivos")
+            return result
+        
+    except Exception as e:
+        print(f"[GPT-minutes] Error generando acta: {e}")
+        import traceback
+        traceback.print_exc()
+        # Return a minimal valid structure on error
+        return {
+            "objective": "",
+            "metadata": {
+                "title": "Acta de Reunión",
+                "participants": participants
+            },
+            "main_points": [],
+            "details": {},
+            "tasks_and_objectives": []
+        }

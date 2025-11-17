@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from BACKEND.llamada_whisper import transcribe_audio_structured
-from BACKEND.llamada_gpt import gpt
+from BACKEND.llamada_gpt import gpt, generate_minutes
 
 
 def _build_transcript_with_timestamps(structured_json_path: str) -> str:
@@ -44,7 +44,7 @@ def _extract_participant_names(reunion_doc: dict[str, Any]) -> list[str]:
 
 
 def process_audio_and_generate_summary(db, audio_file_path: str, reunion_id: str, uploads_folder: str, provider=None) -> None:
-    """Full pipeline: transcribe, build transcript text, run GPT, update DB."""
+    """Full pipeline: transcribe, build transcript text, run GPT for summary and minutes, update DB."""
     # 1. Fetch meeting doc and participants
     reunion_doc = db.reuniones.find_one({"id": reunion_id})
     if not reunion_doc:
@@ -63,20 +63,37 @@ def process_audio_and_generate_summary(db, audio_file_path: str, reunion_id: str
     with open(temp_gpt_input_file, 'w', encoding='utf-8') as f:
         f.write(texto_con_timestamps)
 
-    # 5. Run GPT to produce resumen.json
+    # 5. Run GPT to produce resumen.json (detailed summary with chunking)
+    print("[Processing] Generando resumen detallado (con fragmentación)...")
     gpt(temp_gpt_input_file, participants=participants, provider=provider)
 
-    # 6. Load resumen and update DB
+    # 6. Generate minutes (one-shot, no chunking)
+    print("[Processing] Generando acta (one-shot)...")
+    minutes_data = generate_minutes(texto_con_timestamps, participants=participants, provider=provider)
+    
+    # Save minutes to temp file
+    with open('minutes.json', 'w', encoding='utf-8') as f:
+        json.dump(minutes_data, f, ensure_ascii=False, indent=2)
+
+    # 7. Load resumen and minutes, update DB
     acta_data = _cargar_json('resumen.json', {})
+    minutes_json = _cargar_json('minutes.json', {})
+    
     db.reuniones.update_one(
         {"id": reunion_id},
-        {"$set": {"transcripcion": texto_con_timestamps, "resumen": json.dumps(acta_data, ensure_ascii=False)}}
+        {"$set": {
+            "transcripcion": texto_con_timestamps,
+            "resumen": json.dumps(acta_data, ensure_ascii=False),
+            "minutes": json.dumps(minutes_json, ensure_ascii=False)
+        }}
     )
 
-    # 7. Cleanup temp files
+    # 8. Cleanup temp files
     try:
         if os.path.exists('resumen.json'):
             os.remove('resumen.json')
+        if os.path.exists('minutes.json'):
+            os.remove('minutes.json')
         if os.path.exists(temp_gpt_input_file):
             os.remove(temp_gpt_input_file)
     except Exception:

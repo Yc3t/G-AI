@@ -64,6 +64,7 @@ export interface MinutesData {
     duration_seconds?: number
     meeting_id?: string
   }
+  objective?: string
   participants: Participant[]
   key_points: {
     id: string
@@ -71,8 +72,8 @@ export interface MinutesData {
     time?: string
   }[]
   details: Record<string, {
+    title?: string
     content: string
-    key_timestamps: KeyTimestamp[]
   }>
   custom_sections?: CustomSection[]
   tasks_and_objectives?: ActionItem[]

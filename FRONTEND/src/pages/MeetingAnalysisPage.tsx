@@ -73,6 +73,50 @@ export const MeetingAnalysisPage: React.FC = () => {
   const [saving, setSaving] = useState(false)
   const [emailRecipients, setEmailRecipients] = useState<EditableParticipant[]>([])
 
+  const buildDetailBullets = (content: string) => {
+    const bullets: { text: string; sub: string[] }[] = []
+    const lines = content.split('\n')
+    lines.forEach(line => {
+      const trimmedRight = line.replace(/\s+$/, '')
+      if (!trimmedRight.trim()) return
+      const trimmedLeft = trimmedRight.replace(/^\s+/, '')
+      if (!trimmedLeft.startsWith('-')) return
+      const text = trimmedLeft.replace(/^-\s*/, '').trim()
+      if (!text) return
+      const isSub = line.startsWith('  -') || line.startsWith('\t-')
+      if (isSub && bullets.length > 0) {
+        bullets[bullets.length - 1].sub.push(text)
+      } else {
+        bullets.push({ text, sub: [] })
+      }
+    })
+    return bullets
+  }
+
+  const renderDetailBullets = (content: string) => {
+    const bullets = buildDetailBullets(content)
+    if (!bullets.length) {
+      return <p className="text-sm text-gray-700 whitespace-pre-line">{content}</p>
+    }
+
+    return (
+      <ul className="mt-2 space-y-2 list-disc pl-5 text-sm text-gray-700">
+        {bullets.map((bullet, idx) => (
+          <li key={`bullet-${idx}`}>
+            {bullet.text}
+            {bullet.sub.length > 0 && (
+              <ul className="list-[circle] pl-5 mt-1 space-y-1">
+                {bullet.sub.map((child, childIdx) => (
+                  <li key={`bullet-${idx}-child-${childIdx}`}>{child}</li>
+                ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ul>
+    )
+  }
+
   useEffect(() => {
     if (id) {
       loadMeeting()
@@ -526,6 +570,13 @@ export const MeetingAnalysisPage: React.FC = () => {
                     </div>
                   </div>
 
+                  {meeting.minutes.objective && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                      <h3 className="text-sm font-semibold text-gray-900 mb-1">Objetivo</h3>
+                      <p className="text-sm text-gray-700 whitespace-pre-line">{meeting.minutes.objective}</p>
+                    </div>
+                  )}
+
                   {/* Participants */}
                   <div>
                     <div className="flex items-center justify-between mb-3">
@@ -585,7 +636,7 @@ export const MeetingAnalysisPage: React.FC = () => {
                     </div>
                   </div>
 
-              {/* Key Points */}
+                  {/* Key Points */}
                   <div>
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-gray-900">Puntos Clave</h3>
@@ -600,35 +651,89 @@ export const MeetingAnalysisPage: React.FC = () => {
                       )}
                     </div>
                     <div className="space-y-3">
-                      {(isEditMode ? editableKeyPoints : meeting.minutes.key_points).map((point, index) => (
-                        <div key={index} className="flex items-start space-x-3">
-                          <span className="flex-shrink-0 w-6 h-6 bg-primary-100 text-primary-700 rounded-full flex items-center justify-center text-xs font-semibold">
-                            {index + 1}
-                          </span>
-                          {!isEditMode && (
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-gray-900">{point.title}</p>
+                      {isEditMode
+                        ? editableKeyPoints.map((point, index) => (
+                            <div key={index} className="flex items-start space-x-3">
+                              <span className="flex-shrink-0 w-6 h-6 bg-primary-100 text-primary-700 rounded-full flex items-center justify-center text-xs font-semibold">
+                                {index + 1}
+                              </span>
+                              <div className="flex-1 flex items-center space-x-2">
+                                <input
+                                  type="text"
+                                  value={point.title}
+                                  onChange={(e) => updateKeyPoint(index, e.target.value)}
+                                  placeholder="Título del punto clave"
+                                  className="flex-1 text-sm border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                />
+                                <button
+                                  onClick={() => removeKeyPoint(index)}
+                                  className="text-gray-400 hover:text-red-600"
+                                >
+                                  <Trash2 className="h-5 w-5" />
+                                </button>
+                              </div>
                             </div>
-                          )}
-                          {isEditMode && (
-                            <div className="flex-1 flex items-center space-x-2">
-                              <input
-                                type="text"
-                                value={point.title}
-                                onChange={(e) => updateKeyPoint(index, e.target.value)}
-                                placeholder="Título del punto clave"
-                                className="flex-1 text-sm border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                              />
-                              <button
-                                onClick={() => removeKeyPoint(index)}
-                                className="text-gray-400 hover:text-red-600"
+                          ))
+                        : meeting.minutes.key_points.map((point, index) => {
+                            const detail = meeting.minutes?.details?.[point.id] || null
+                            const hasDetail = !!detail?.content?.trim()
+                            const toggleId = point.id || `kp-${index}`
+                            const isExpanded = expandedPoints.has(toggleId)
+
+                            return (
+                              <div
+                                key={toggleId}
+                                className={`border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:bg-gray-50 transition cursor-pointer ${
+                                  isExpanded ? 'ring-1 ring-primary-100' : ''
+                                }`}
+                                onClick={() => togglePoint(toggleId)}
                               >
-                                <Trash2 className="h-5 w-5" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex items-start space-x-3">
+                                    <span className="flex-shrink-0 w-6 h-6 bg-primary-100 text-primary-700 rounded-full flex items-center justify-center text-xs font-semibold">
+                                      {index + 1}
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex flex-wrap items-baseline gap-2">
+                                        <p className="text-sm font-semibold text-gray-900">{point.title}</p>
+                                        {point.time && (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              seekToTime(point.time!)
+                                            }}
+                                            className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                                          >
+                                            {point.time}
+                                          </button>
+                                        )}
+                                      </div>
+                                      {hasDetail && !isExpanded && (
+                                        <p className="text-xs text-gray-500 mt-1">Haz clic para ver detalles</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {hasDetail && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        togglePoint(toggleId)
+                                      }}
+                                      className="text-gray-500 hover:text-gray-700"
+                                      aria-label="Mostrar detalles del punto"
+                                    >
+                                      {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                    </button>
+                                  )}
+                                </div>
+                                {hasDetail && isExpanded && detail && (
+                                  <div className="mt-3">
+                                    {renderDetailBullets(detail.content)}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
                     </div>
                   </div>
 
@@ -965,11 +1070,23 @@ export const MeetingAnalysisPage: React.FC = () => {
 
         {/* Audio Player Fixed at Bottom */}
         {meeting.audio_filename && (
-          <div className="border-t border-gray-200 p-2 sm:p-4 bg-white">
-            <WaveformPlayer
-              audioUrl={audioService.getAudioUrl(meeting.audio_filename)}
-              seekTime={seekTime}
-            />
+          <div className="border-t border-gray-200 px-2 sm:px-4 py-2 bg-white">
+            <div className="flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <WaveformPlayer
+                  audioUrl={audioService.getAudioUrl(meeting.audio_filename)}
+                  seekTime={seekTime}
+                />
+              </div>
+              <a
+                href={audioService.getAudioUrl(meeting.audio_filename)}
+                download
+                className="flex items-center justify-center rounded-full p-2 text-gray-500 hover:text-gray-800 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                title="Descargar MP3"
+              >
+                <Download className="h-5 w-5" />
+              </a>
+            </div>
           </div>
         )}
       </div>
