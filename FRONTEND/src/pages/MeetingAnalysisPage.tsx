@@ -685,7 +685,7 @@ export const MeetingAnalysisPage: React.FC = () => {
                                 key={toggleId}
                                 type="button"
                                 onClick={() => togglePoint(toggleId)}
-                                className={`w-full text-left border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:bg-gray-50 transition ${
+                                className={`w-full text-left rounded-xl p-4 bg-white shadow-sm hover:shadow-md transition ${
                                   isExpanded ? 'ring-1 ring-primary-100' : ''
                                 }`}
                               >
@@ -697,35 +697,34 @@ export const MeetingAnalysisPage: React.FC = () => {
                                     <div className="flex-1 min-w-0">
                                       <div className="flex flex-wrap items-baseline gap-2">
                                         <p className="text-sm font-semibold text-gray-900">{point.title}</p>
-                                        {point.time && (
-                                          <span
-                                            onClick={(e) => {
-                                              e.stopPropagation()
-                                              seekToTime(point.time!)
-                                            }}
-                                            className="text-xs text-primary-600 hover:text-primary-700 font-medium cursor-pointer"
-                                          >
-                                            {point.time}
-                                          </span>
-                                        )}
                                       </div>
-                                      {hasDetail && !isExpanded && (
-                                        <p className="text-xs text-gray-500 mt-1">Haz clic para ver detalles</p>
-                                      )}
                                     </div>
                                   </div>
-                                  {hasDetail && (
-                                    <span
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        togglePoint(toggleId)
-                                      }}
-                                      className="text-gray-500 hover:text-gray-700 cursor-pointer"
-                                      aria-label="Mostrar detalles del punto"
-                                    >
-                                      {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                                    </span>
-                                  )}
+                                  <div className="flex items-center gap-2 text-xs font-medium text-primary-600">
+                                    {point.time && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          seekToTime(point.time!)
+                                        }}
+                                        className="text-primary-600 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded"
+                                      >
+                                        {point.time}
+                                      </button>
+                                    )}
+                                    {hasDetail && (
+                                      <span
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          togglePoint(toggleId)
+                                        }}
+                                        className="text-gray-500 hover:text-gray-700 cursor-pointer"
+                                        aria-label="Mostrar detalles del punto"
+                                      >
+                                        {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                                 {hasDetail && isExpanded && detail && (
                                   <div className="mt-3">
