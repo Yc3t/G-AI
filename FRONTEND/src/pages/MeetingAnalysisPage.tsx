@@ -55,6 +55,7 @@ export const MeetingAnalysisPage: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedPoints, setExpandedPoints] = useState<Set<string>>(new Set())
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
   const [searchTerm, setSearchTerm] = useState('')
   const [showEmailModal, setShowEmailModal] = useState(false)
   const [sendingEmail, setSendingEmail] = useState(false)
@@ -283,6 +284,16 @@ export const MeetingAnalysisPage: React.FC = () => {
       newExpanded.add(pointId)
     }
     setExpandedPoints(newExpanded)
+  }
+
+  const toggleTaskCard = (taskId: string) => {
+    const newExpanded = new Set(expandedTasks)
+    if (newExpanded.has(taskId)) {
+      newExpanded.delete(taskId)
+    } else {
+      newExpanded.add(taskId)
+    }
+    setExpandedTasks(newExpanded)
   }
 
   const seekToTime = (timeStr: string) => {
@@ -809,47 +820,84 @@ export const MeetingAnalysisPage: React.FC = () => {
                         )}
                       </div>
                       <div className="space-y-3">
-                        {(isEditMode ? editableTasks : meeting.minutes.tasks_and_objectives || []).map((item, index) => (
-                          <div key={index} className="flex items-start space-x-3">
-                            <span className="flex-shrink-0 w-6 h-6 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center text-xs font-semibold">
-                              {index + 1}
-                            </span>
-                            {!isEditMode && (
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-gray-900">{item.task}</p>
-                                {item.description && (
-                                  <p className="text-xs text-gray-600 mt-1">{item.description}</p>
-                                )}
-                              </div>
-                            )}
-                            {isEditMode && (
-                              <div className="flex-1 space-y-2">
-                                <div className="flex items-start space-x-2">
+                        {(isEditMode ? editableTasks : meeting.minutes.tasks_and_objectives || []).map((item, index) => {
+                          if (isEditMode) {
+                            return (
+                              <div key={index} className="flex items-start space-x-3">
+                                <span className="flex-shrink-0 w-6 h-6 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center text-xs font-semibold">
+                                  {index + 1}
+                                </span>
+                                <div className="flex-1 space-y-2">
+                                  <div className="flex items-start space-x-2">
+                                    <input
+                                      type="text"
+                                      value={item.task}
+                                      onChange={(e) => updateTask(index, 'task', e.target.value)}
+                                      placeholder="Título de la tarea"
+                                      className="flex-1 text-sm font-medium border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                    />
+                                    <button
+                                      onClick={() => removeTask(index)}
+                                      className="text-gray-400 hover:text-red-600 mt-1"
+                                    >
+                                      <Trash2 className="h-5 w-5" />
+                                    </button>
+                                  </div>
                                   <input
                                     type="text"
-                                    value={item.task}
-                                    onChange={(e) => updateTask(index, 'task', e.target.value)}
-                                    placeholder="Título de la tarea"
-                                    className="flex-1 text-sm font-medium border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                    value={item.description}
+                                    onChange={(e) => updateTask(index, 'description', e.target.value)}
+                                    placeholder="Descripción (opcional)"
+                                    className="w-full text-xs border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                   />
-                                  <button
-                                    onClick={() => removeTask(index)}
-                                    className="text-gray-400 hover:text-red-600 mt-1"
-                                  >
-                                    <Trash2 className="h-5 w-5" />
-                                  </button>
                                 </div>
-                                <input
-                                  type="text"
-                                  value={item.description}
-                                  onChange={(e) => updateTask(index, 'description', e.target.value)}
-                                  placeholder="Descripción (opcional)"
-                                  className="w-full text-xs border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                />
                               </div>
-                            )}
-                          </div>
-                        ))}
+                            )
+                          }
+
+                          const toggleId = `${item.task || 'task'}-${index}`
+                          const hasDescription = !!(item.description && item.description.trim())
+                          const isExpanded = expandedTasks.has(toggleId)
+
+                          return (
+                            <button
+                              key={toggleId}
+                              type="button"
+                              onClick={() => toggleTaskCard(toggleId)}
+                              className={`w-full text-left rounded-xl p-4 bg-white shadow-sm hover:shadow-md transition ${
+                                isExpanded ? 'ring-1 ring-primary-100' : ''
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-start space-x-3">
+                                  <span className="flex-shrink-0 w-6 h-6 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center text-xs font-semibold">
+                                    {index + 1}
+                                  </span>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold text-gray-900">{item.task}</p>
+                                  </div>
+                                </div>
+                                {hasDescription && (
+                                  <span
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      toggleTaskCard(toggleId)
+                                    }}
+                                    className="text-gray-500 hover:text-gray-700 cursor-pointer"
+                                    aria-label="Mostrar detalles de la tarea"
+                                  >
+                                    {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                  </span>
+                                )}
+                              </div>
+                              {hasDescription && isExpanded && (
+                                <div className="mt-3 text-sm text-gray-700">
+                                  {item.description}
+                                </div>
+                              )}
+                            </button>
+                          )
+                        })}
                       </div>
                     </div>
                   )}
