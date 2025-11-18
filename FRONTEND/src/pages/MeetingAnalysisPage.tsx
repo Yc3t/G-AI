@@ -1070,8 +1070,8 @@ export const MeetingAnalysisPage: React.FC = () => {
 
         {/* Audio Player Fixed at Bottom */}
         {meeting.audio_filename && (
-          <div className="border-t border-gray-200 px-2 sm:px-4 py-2 bg-white">
-            <div className="flex items-center gap-3">
+          <div className="border-t border-gray-200 px-2 sm:px-4 py-1.5 sm:py-2 bg-white">
+            <div className="flex items-center gap-2 sm:gap-3">
               <div className="flex-1 min-w-0">
                 <WaveformPlayer
                   audioUrl={audioService.getAudioUrl(meeting.audio_filename)}
