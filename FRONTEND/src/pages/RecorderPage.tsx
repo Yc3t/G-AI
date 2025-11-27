@@ -6,11 +6,24 @@ import {
   Download,
   Trash2,
   Check,
-  Database
+  Database,
+  Pencil
 } from 'lucide-react'
 import { AudioRecorder } from '../services/audioUtils'
 import { meetingApi } from '../services/api'
 import type { Participant, RecorderState } from '../types'
+
+type WakeLockSentinel = {
+  release: () => Promise<void>
+}
+
+declare global {
+  interface Navigator {
+    wakeLock?: {
+      request: (type: 'screen') => Promise<WakeLockSentinel>
+    }
+  }
+}
 
 export const RecorderPage: React.FC = () => {
   const navigate = useNavigate()
@@ -24,6 +37,8 @@ export const RecorderPage: React.FC = () => {
   })
   
   const [participants, setParticipants] = useState<Participant[]>([])
+  const [isEditingParticipants, setIsEditingParticipants] = useState(false)
+  const [participantDrafts, setParticipantDrafts] = useState<string[]>([])
   const [permissionChecked, setPermissionChecked] = useState(false)
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
   const [isUploading, setIsUploading] = useState(false)
@@ -41,6 +56,28 @@ export const RecorderPage: React.FC = () => {
   const preRecordingAudioContextRef = useRef<AudioContext | null>(null)
   const preRecordingAnalyserRef = useRef<AnalyserNode | null>(null)
   const preRecordingAnimationFrameRef = useRef<number | null>(null)
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null)
+  const requestWakeLock = async () => {
+    try {
+      if (!('wakeLock' in navigator)) return
+      if (wakeLockRef.current) return
+      wakeLockRef.current = await navigator.wakeLock!.request('screen')
+    } catch (err) {
+      console.warn('Screen wake lock not available', err)
+      wakeLockRef.current = null
+    }
+  }
+
+  const releaseWakeLock = async () => {
+    try {
+      if (wakeLockRef.current) {
+        await wakeLockRef.current.release()
+        wakeLockRef.current = null
+      }
+    } catch (err) {
+      console.warn('Failed to release wake lock', err)
+    }
+  }
 
   const formatLocalTime = (date: Date) =>
     date.toLocaleTimeString('es-ES', { hour: 'numeric', minute: '2-digit', hour12: true })
@@ -88,6 +125,7 @@ export const RecorderPage: React.FC = () => {
         audioRecorderRef.current.stopRecording()
       }
       stopPreRecordingAudioMonitoring()
+      void releaseWakeLock()
     }
   }, [])
 
@@ -130,6 +168,32 @@ export const RecorderPage: React.FC = () => {
   useEffect(() => {
     audioLevelRef.current = recorderState.audioLevel
   }, [recorderState.audioLevel])
+
+  useEffect(() => {
+    const shouldHoldWakeLock = recorderState.isRecording || recorderState.isPreRecording
+    if (shouldHoldWakeLock) {
+      void requestWakeLock()
+    } else {
+      void releaseWakeLock()
+    }
+  }, [recorderState.isRecording, recorderState.isPreRecording])
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === 'visible' &&
+        (recorderState.isRecording || recorderState.isPreRecording) &&
+        !wakeLockRef.current
+      ) {
+        void requestWakeLock()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [recorderState.isRecording, recorderState.isPreRecording])
 
   useEffect(() => {
     const shouldAnimate = recorderState.isRecording || recorderState.isPreRecording
@@ -419,6 +483,40 @@ export const RecorderPage: React.FC = () => {
     }
   }
 
+  const openParticipantEditor = () => {
+    const names = participants.length > 0 ? participants.map(p => p.name) : ['']
+    setParticipantDrafts(names)
+    setIsEditingParticipants(true)
+  }
+
+  const closeParticipantEditor = () => {
+    setIsEditingParticipants(false)
+  }
+
+  const handleParticipantDraftChange = (index: number, value: string) => {
+    setParticipantDrafts(prev => prev.map((name, idx) => (idx === index ? value : name)))
+  }
+
+  const handleAddParticipantDraft = () => {
+    setParticipantDrafts(prev => [...prev, ''])
+  }
+
+  const handleRemoveParticipantDraft = (index: number) => {
+    setParticipantDrafts(prev => {
+      const next = prev.filter((_, idx) => idx !== index)
+      return next.length > 0 ? next : ['']
+    })
+  }
+
+  const handleSaveParticipantDrafts = () => {
+    const cleanedNames = participantDrafts
+      .map(name => name.trim())
+      .filter((name, idx, arr) => name && arr.indexOf(name) === idx)
+
+    setParticipants(cleanedNames.map(name => ({ name })))
+    setIsEditingParticipants(false)
+  }
+
   const handleDiscardRecording = () => {
     setRecordedBlob(null)
     setRecorderState(prev => ({ 
@@ -513,6 +611,8 @@ export const RecorderPage: React.FC = () => {
 
   const isActiveRecording = recorderState.isRecording || recorderState.isPaused
   const hasStartedSession = recorderState.isPreRecording || isActiveRecording
+  const canEditParticipants =
+    !recorderState.isPreRecording && (recorderState.isRecording || recorderState.isPaused || hasCompletedNamesClip)
   
   const statusLabel = recorderState.isRecording && !recorderState.isPaused
     ? 'Grabando'
@@ -693,15 +793,78 @@ export const RecorderPage: React.FC = () => {
             </div>
             )}
 
-            {!hasStartedSession ? null : (participants.length > 0 || isLoadingParticipants) && (
+            {!hasStartedSession ? null : (participants.length > 0 || isLoadingParticipants || canEditParticipants) && (
             <div className={`sm:absolute flex w-full max-w-md flex-col items-center gap-2 text-center flex-shrink-0 z-10 px-4 mb-2 ${
               recorderState.isPreRecording ? 'sm:top-56 mt-4' : 'sm:top-40 mt-4'
             }`}>
               <div className="w-full">
-                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Participantes</p>
-                {isLoadingParticipants && participants.length === 0 ? (
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Participantes</p>
+                  {canEditParticipants && (
+                    <button
+                      type="button"
+                      onClick={openParticipantEditor}
+                      className={`inline-flex items-center justify-center rounded-full border border-transparent p-1 text-primary-600 transition hover:text-primary-700 hover:bg-primary-50 ${
+                        isEditingParticipants ? 'bg-primary-50' : ''
+                      }`}
+                      aria-label={isEditingParticipants ? 'Editando participantes' : 'Editar nombres'}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                {isEditingParticipants ? (
+                  <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 p-3 space-y-2 text-left">
+                    {participantDrafts.map((name, index) => (
+                      <div key={`participant-input-${index}`} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={name}
+                          onChange={(e) => handleParticipantDraftChange(index, e.target.value)}
+                          className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+                          placeholder={`Participante ${index + 1}`}
+                        />
+                        {participantDrafts.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveParticipantDraft(index)}
+                            className="rounded-full border border-slate-200 p-1 text-slate-500 hover:text-red-600 hover:border-red-200"
+                            aria-label="Eliminar participante"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between pt-2">
+                      <button
+                        type="button"
+                        onClick={handleAddParticipantDraft}
+                        className="text-xs font-medium text-primary-600 hover:text-primary-700"
+                      >
+                        Añadir participante
+                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={closeParticipantEditor}
+                          className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSaveParticipantDrafts}
+                          className="rounded-full bg-primary-600 px-3 py-1 text-xs font-semibold text-white hover:bg-primary-700"
+                        >
+                          Guardar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : isLoadingParticipants && participants.length === 0 ? (
                   <p className="italic text-slate-400">Mostrando participantes...</p>
-                ) : (
+                ) : participants.length > 0 ? (
                   <div className="overflow-x-auto scrollbar-thin -mx-4 px-4">
                     <div className="flex gap-3 sm:justify-center" style={{ minWidth: 'min-content' }}>
                       {participants.map((participant, index) => (
@@ -720,6 +883,8 @@ export const RecorderPage: React.FC = () => {
                       ))}
                     </div>
                   </div>
+                ) : (
+                  <p className="text-xs text-slate-500 italic">Añade participantes mientras grabas.</p>
                 )}
               </div>
             </div>
