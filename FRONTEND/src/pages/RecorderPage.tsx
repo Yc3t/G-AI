@@ -785,7 +785,7 @@ export const RecorderPage: React.FC = () => {
             )}
 
             {!hasStartedSession ? null : (
-            <div className={`sm:absolute flex w-full max-w-md flex-col items-center gap-1 text-center flex-shrink-0 z-10 ${
+            <div className={`sm:absolute flex w-full max-w-md flex-col items-center gap-1 text-center flex-shrink-0 z-20 ${
               recorderState.isPreRecording ? 'sm:top-40 mt-4' : 'sm:top-24 mt-4'
             }`}>
               <p className="text-base font-medium text-slate-900">Nueva grabación</p>
@@ -794,7 +794,7 @@ export const RecorderPage: React.FC = () => {
             )}
 
             {!hasStartedSession ? null : (participants.length > 0 || isLoadingParticipants || canEditParticipants) && (
-            <div className={`sm:absolute flex w-full max-w-md flex-col items-center gap-2 text-center flex-shrink-0 z-10 px-4 mb-2 ${
+            <div className={`sm:absolute flex w-full max-w-md flex-col items-center gap-2 text-center flex-shrink-0 z-30 px-4 mb-2 ${
               recorderState.isPreRecording ? 'sm:top-56 mt-4' : 'sm:top-40 mt-4'
             }`}>
               <div className="w-full">
