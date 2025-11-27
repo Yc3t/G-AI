@@ -669,7 +669,7 @@ def generate_minutes(transcript_text: str, participants: List[str], provider=Non
             return ""
         lines = [ln.rstrip() for ln in value.splitlines() if ln.strip()]
         bullets: List[str] = []
-        current = []
+        current: List[str] = []
         for line in lines:
             stripped = line.lstrip()
             if stripped.startswith("-"):
@@ -689,11 +689,9 @@ def generate_minutes(transcript_text: str, participants: List[str], provider=Non
         cleaned = []
         for block in trimmed:
             sentences = block.split("\n")
-            head = sentences[0]
-            if len(head) > 180:
-                head = head[:177].rstrip() + "…"
+            head = sentences[0].rstrip()
             rest = sentences[1:2]  # allow at most one sub bullet line
-            cleaned.append("\n".join([head, *rest]))
+            cleaned.append("\n".join([head, *rest]).strip())
         return "\n".join(cleaned)
     
     system_prompt = prompts.minutes_generation_system_prompt(participants)
