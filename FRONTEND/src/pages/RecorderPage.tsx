@@ -798,8 +798,10 @@ export const RecorderPage: React.FC = () => {
               recorderState.isPreRecording ? 'sm:top-56 mt-4' : 'sm:top-40 mt-4'
             }`}>
               <div className="w-full">
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Participantes</p>
+                <div className="mb-2 flex items-center">
+                  <div className="flex-1 text-center">
+                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Participantes</p>
+                  </div>
                   {canEditParticipants && (
                     <button
                       type="button"
