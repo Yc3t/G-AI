@@ -58,9 +58,9 @@ def create_coleccion_reuniones(db: Database) -> None:
                     "bsonType": ["date", "string"],
                     "description": "Fecha de subida de la reunión"
                 },
-                "resumen": {
+                "minutes": {
                     "bsonType": ["string", "null"],
-                    "description": "Resumen estructurado de la reunión"
+                    "description": "Acta generada en JSON"
                 }
             }
         }

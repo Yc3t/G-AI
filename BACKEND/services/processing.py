@@ -4,7 +4,8 @@ from datetime import datetime
 from typing import Any
 
 from BACKEND.llamada_whisper import transcribe_audio_structured
-from BACKEND.llamada_gpt import gpt, generate_minutes
+from BACKEND.llamada_gpt import generate_minutes
+from BACKEND.services.minutes import compose_minutes
 
 
 def _build_transcript_with_timestamps(structured_json_path: str) -> str:
@@ -16,16 +17,6 @@ def _build_transcript_with_timestamps(structured_json_path: str) -> str:
             start = seg.get('start', 0)
             texto_con_timestamps += f"[{int(start//60):02d}:{int(start%60):02d}] {seg.get('text','').strip()}\n"
     return texto_con_timestamps
-
-
-def _cargar_json(path: str, estructura_base: dict | None = None) -> dict:
-    if estructura_base is None:
-        estructura_base = {}
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return estructura_base
 
 
 def _extract_participant_names(reunion_doc: dict[str, Any]) -> list[str]:
@@ -44,7 +35,7 @@ def _extract_participant_names(reunion_doc: dict[str, Any]) -> list[str]:
 
 
 def process_audio_and_generate_summary(db, audio_file_path: str, reunion_id: str, uploads_folder: str, provider=None) -> None:
-    """Full pipeline: transcribe, build transcript text, run GPT for summary and minutes, update DB."""
+    """Full pipeline: transcribe, build transcript text, run GPT for minutes, update DB."""
     # 1. Fetch meeting doc and participants
     reunion_doc = db.reuniones.find_one({"id": reunion_id})
     if not reunion_doc:
@@ -63,37 +54,23 @@ def process_audio_and_generate_summary(db, audio_file_path: str, reunion_id: str
     with open(temp_gpt_input_file, 'w', encoding='utf-8') as f:
         f.write(texto_con_timestamps)
 
-    # 5. Run GPT to produce resumen.json (detailed summary with chunking)
-    print("[Processing] Generando resumen detallado (con fragmentación)...")
-    gpt(temp_gpt_input_file, participants=participants, provider=provider)
-
-    # 6. Generate minutes (one-shot, no chunking)
+    # 5. Generate minutes (one-shot, no chunking)
     print("[Processing] Generando acta (one-shot)...")
-    minutes_data = generate_minutes(texto_con_timestamps, participants=participants, provider=provider)
-    
-    # Save minutes to temp file
-    with open('minutes.json', 'w', encoding='utf-8') as f:
-        json.dump(minutes_data, f, ensure_ascii=False, indent=2)
+    minutes_raw = generate_minutes(texto_con_timestamps, participants=participants, provider=provider)
+    meeting_context = dict(reunion_doc or {})
+    meeting_context['transcripcion'] = texto_con_timestamps
+    normalized_minutes = compose_minutes(meeting_context, minutes_raw)
 
-    # 7. Load resumen and minutes, update DB
-    acta_data = _cargar_json('resumen.json', {})
-    minutes_json = _cargar_json('minutes.json', {})
-    
     db.reuniones.update_one(
         {"id": reunion_id},
         {"$set": {
             "transcripcion": texto_con_timestamps,
-            "resumen": json.dumps(acta_data, ensure_ascii=False),
-            "minutes": json.dumps(minutes_json, ensure_ascii=False)
+            "minutes": json.dumps(normalized_minutes, ensure_ascii=False)
         }}
     )
 
-    # 8. Cleanup temp files
+    # 6. Cleanup temp files
     try:
-        if os.path.exists('resumen.json'):
-            os.remove('resumen.json')
-        if os.path.exists('minutes.json'):
-            os.remove('minutes.json')
         if os.path.exists(temp_gpt_input_file):
             os.remove(temp_gpt_input_file)
     except Exception:

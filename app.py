@@ -34,10 +34,9 @@ from email.mime.text import MIMEText
 
 # Módulos locales del proyecto (del backend)
 from BACKEND.llamada_whisper import transcribe_audio_structured
-from BACKEND.llamada_gpt import gpt
 from BACKEND.db import db, añadir_reunion, create_coleccion_contactos, ensure_indexes, upsert_contact, list_contacts, delete_contact
 from BACKEND.llamada_whisper import transcribe_audio_simple
-from BACKEND.llamada_gpt import extract_names_from_text, gpt # gpt se usará más tarde
+from BACKEND.llamada_gpt import extract_names_from_text, generate_minutes
 from BACKEND.services.minutes import compose_minutes
 from BACKEND.services.emailer import SMTPEmailer
 from BACKEND.services.processing import process_audio_and_generate_summary
@@ -137,6 +136,33 @@ def cargar_json(path: str, estructura_base: dict = None) -> dict:
         return estructura_base
 
 
+def _load_minutes_data(reunion_doc: dict) -> dict:
+    """Return stored minutes JSON (normalized). Falls back to legacy resumen when necessary."""
+    def _parse_blob(value):
+        if isinstance(value, str) and value.strip():
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                return None
+        return None
+
+    minutes_data = _parse_blob(reunion_doc.get('minutes'))
+    if minutes_data:
+        return minutes_data
+
+    legacy_resumen = reunion_doc.get('resumen')
+    if legacy_resumen:
+        try:
+            summary_obj = json.loads(legacy_resumen)
+            return compose_minutes(reunion_doc, summary_obj)
+        except Exception:
+            pass
+
+    return compose_minutes(reunion_doc, {})
+
+
 # =========================================================================
 # 4. RUTAS PARA SERVIR LAS PÁGINAS HTML
 # =========================================================================
@@ -178,7 +204,7 @@ def _process_audio_and_generate_summary(audio_file_path: str, reunion_id: str):
         print(f"Acta para la reunión {reunion_id} actualizada correctamente en la DB.")
     except Exception as e:
         print(f"Error crítico en _process_audio_and_generate_summary para {reunion_id}: {e}")
-        db.reuniones.update_one({"id": reunion_id}, {"$set": {"resumen": json.dumps({"error": str(e)})}})
+        db.reuniones.update_one({"id": reunion_id}, {"$set": {"minutes": json.dumps({"error": str(e)})}})
 
 @app.route('/api/reuniones', methods=['GET'])
 def get_reuniones():
@@ -212,22 +238,18 @@ def get_reuniones():
         for doc in db.reuniones.find(query).sort("fecha_de_subida", -1):
             doc['_id'] = str(doc['_id'])
             if 'id' not in doc: doc['id'] = doc['_id']
-            # Prefer minutes title from resumen.metadata.title when available
+            # Prefer minutes metadata for derived fields when available
             try:
-                if isinstance(doc.get('resumen'), str) and doc['resumen'].strip():
-                    _sum = json.loads(doc['resumen'])
-                    md = _sum.get('metadata') if isinstance(_sum, dict) else None
-                    md_title = (md or {}).get('title') if isinstance(md, dict) else None
-                    if isinstance(md_title, str) and md_title.strip():
-                        doc['titulo'] = md_title.strip()
-                    # Derive participants count from metadata if not present elsewhere
-                    try:
-                        if 'participants_count' not in doc:
-                            md_participants = (md or {}).get('participants') if isinstance(md, dict) else None
-                            if isinstance(md_participants, list):
-                                doc['participants_count'] = len([p for p in md_participants if str(p).strip()])
-                    except Exception:
-                        pass
+                minutes_blob = _load_minutes_data(doc)
+                if isinstance(minutes_blob, dict):
+                    meta = minutes_blob.get('metadata', {})
+                    minutes_title = meta.get('title')
+                    if isinstance(minutes_title, str) and minutes_title.strip():
+                        doc['titulo'] = minutes_title.strip()
+                    if 'participants_count' not in doc:
+                        participants_list = minutes_blob.get('participants')
+                        if isinstance(participants_list, list):
+                            doc['participants_count'] = len([p for p in participants_list if isinstance(p, dict) and p.get('name')])
             except Exception:
                 pass
             if isinstance(doc.get('fecha_de_subida'), datetime):
@@ -263,25 +285,16 @@ def get_reunion_by_id(reunion_id: str):
         if not reunion_doc:
             return jsonify({"error": "Reunión no encontrada"}), 404
 
+        minutes_data = _load_minutes_data(reunion_doc)
+
         # Determinar si el análisis está completo.
-        is_processed = bool(reunion_doc.get('resumen') and reunion_doc.get('transcripcion'))
+        is_processed = bool(minutes_data and reunion_doc.get('transcripcion'))
 
-        summary_data = {}
-        if reunion_doc.get('resumen'):
-            try:
-                summary_data = json.loads(reunion_doc['resumen'])
-                # Debug: Check if tasks_and_objectives exist in summary
-                print(f"[DEBUG app.py] Summary has tasks_and_objectives: {summary_data.get('tasks_and_objectives', 'NOT FOUND')}")
-            except (json.JSONDecodeError, TypeError):
-                summary_data = {} # Si hay un error, devuelve objeto vacío
-
-        # If meeting doc has no participants but summary metadata has them, expose them
+        # If meeting doc has no participants but minutes metadata has them, expose them (sin persistir)
         try:
             if not reunion_doc.get('participants') and not reunion_doc.get('participantes'):
-                md = summary_data.get('metadata') if isinstance(summary_data, dict) else None
-                md_participants = (md or {}).get('participants') if isinstance(md, dict) else None
+                md_participants = minutes_data.get('participants') if isinstance(minutes_data, dict) else None
                 if isinstance(md_participants, list) and md_participants:
-                    # Do not persist; just present in API response via minutes and participants_out
                     pass
         except Exception:
             pass
@@ -296,22 +309,8 @@ def get_reunion_by_id(reunion_id: str):
                     text = match.group(3) if match else line.strip()
                     segments.append({"id": i, "start": start_time, "text": text})
 
-        # Load minutes (either from new 'minutes' field or fallback to old summary-based approach)
-        minutes_data = {}
-        try:
-            if reunion_doc.get('minutes'):
-                minutes_data = json.loads(reunion_doc['minutes'])
-        except Exception:
-            minutes_data = {}
-        
-        # Compose minutes (from new minutes_data or fallback to summary_data)
-        if minutes_data:
-            minutes_obj = compose_minutes(reunion_doc, minutes_data)
-            print(f"[DEBUG app.py] Minutes composed from 'minutes' field. tasks_and_objectives: {len(minutes_obj.get('tasks_and_objectives', []))} items")
-        else:
-            # Fallback: compose from summary for backward compatibility
-            minutes_obj = compose_minutes(reunion_doc, summary_data)
-            print(f"[DEBUG app.py] Minutes composed from 'resumen' field (fallback). tasks_and_objectives: {len(minutes_obj.get('tasks_and_objectives', []))} items")
+        minutes_obj = minutes_data or compose_minutes(reunion_doc, {})
+        print(f"[DEBUG app.py] Minutes ready. tasks_and_objectives: {len(minutes_obj.get('tasks_and_objectives', []))} items")
         
         # Preparar participantes (nuevo campo 'participants') enriquecidos con emails desde contactos
         participants_out = []
@@ -325,10 +324,13 @@ def get_reunion_by_id(reunion_id: str):
                 participants_out = [{"name": str(n).strip()} for n in reunion_doc.get('participantes') if str(n).strip()]
             # Fallback from summary metadata if DB has none
             if not participants_out:
-                md = summary_data.get('metadata') if isinstance(summary_data, dict) else None
-                md_participants = (md or {}).get('participants') if isinstance(md, dict) else None
+                md_participants = minutes_obj.get('participants')
                 if isinstance(md_participants, list):
-                    participants_out = [{"name": str(n).strip()} for n in md_participants if str(n).strip()]
+                    participants_out = [
+                        {"name": str(p.get('name', '')).strip(), "email": p.get('email')}
+                        for p in md_participants
+                        if isinstance(p, dict) and str(p.get('name', '')).strip()
+                    ]
             # Enrich with contacts emails
             try:
                 contacts = {c.get('name','').strip().lower(): c.get('email') for c in list_contacts(db)}
@@ -348,7 +350,6 @@ def get_reunion_by_id(reunion_id: str):
             "id": reunion_doc.get('id'),
             "titulo": reunion_doc.get('titulo'),
             "audio_filename": os.path.basename(reunion_doc.get('audio_path', '')) if reunion_doc.get('audio_path') else None,
-            "summary_data": summary_data,
             "full_transcript_data": {"segments": segments},
             "participants": participants_out,
             "minutes": minutes_obj,
@@ -383,7 +384,7 @@ def upload_audio():
     reunion_data = {
         "id": unique_id, "titulo": f"Reunión de {secure_filename(file.filename)}",
         "audio_path": file_path, "fecha_de_subida": datetime.now(),
-        "participantes": [], "transcripcion": None, "resumen": None
+        "participantes": [], "transcripcion": None, "minutes": None
     }
     añadir_reunion(db, reunion_data)
     return jsonify({"reunion_id": unique_id, "message": "Archivo inicial guardado."}), 201
@@ -415,7 +416,7 @@ def upload_and_create_meeting():
     reunion_data = {
         "id": unique_id, "titulo": f"Reunión de {secure_filename(file.filename)}",
         "audio_path": file_path, "fecha_de_subida": datetime.now(),
-        "participantes": [], "transcripcion": None, "resumen": None
+        "participantes": [], "transcripcion": None, "minutes": None
     }
     añadir_reunion(db, reunion_data)
     return jsonify({"reunion_id": unique_id, "message": "Archivo inicial guardado."}), 201
@@ -492,7 +493,7 @@ def process_final_audio():
             "participants": participants_objs,
             "audio_path": None,
             "transcripcion": None,
-            "resumen": None
+            "minutes": None
         }
         añadir_reunion(db, reunion_data)
     else:
@@ -614,49 +615,23 @@ def update_reunion_minutes(reunion_id: str):
         if not reunion_doc:
             return jsonify({"error": "Reunión no encontrada."}), 404
 
-        # Parse current summary to preserve other data
-        current_summary = {}
-        if reunion_doc.get('resumen'):
-            try:
-                current_summary = json.loads(reunion_doc['resumen'])
-            except:
-                pass
-
-        # Update fields based on payload
-        update_fields = {}
+        minutes_state = _load_minutes_data(reunion_doc)
 
         # Update participants if provided
         if 'participants' in payload:
             cleaned = normalize_and_save_participants(db, reunion_id, payload['participants'])
-            # Already saved by normalize_and_save_participants, but we need to reflect it
+            minutes_state['participants'] = cleaned
 
         # Update key_points if provided
         if 'key_points' in payload:
             key_points = payload['key_points']
-            # Update main_points in summary
-            if 'main_points' not in current_summary:
-                current_summary['main_points'] = []
-
-            # Convert new key points to main_points format (preserve IDs if they exist)
-            new_main_points = []
-            for idx, kp in enumerate(key_points):
-                # Try to preserve existing ID if count matches
-                existing_id = None
-                if idx < len(current_summary.get('main_points', [])):
-                    existing_id = current_summary['main_points'][idx].get('id')
-
-                new_main_points.append({
-                    'id': existing_id or str(idx + 1),
-                    'title': kp.get('title', ''),
-                    'time': kp.get('time')
-                })
-
-            current_summary['main_points'] = new_main_points
+            if isinstance(key_points, list):
+                minutes_state['key_points'] = key_points
 
         # Update tasks_and_objectives if provided
         if 'tasks_and_objectives' in payload:
             tasks = payload['tasks_and_objectives']
-            current_summary['tasks_and_objectives'] = [
+            minutes_state['tasks_and_objectives'] = [
                 {
                     'task': t.get('task', ''),
                     'description': t.get('description', '')
@@ -667,17 +642,12 @@ def update_reunion_minutes(reunion_id: str):
         # Update custom_sections if provided
         if 'custom_sections' in payload:
             custom_sections = payload['custom_sections']
-            current_summary['custom_sections'] = custom_sections
+            minutes_state['custom_sections'] = custom_sections
 
-        # Save updated summary back to DB
-        if current_summary:
-            update_fields['resumen'] = json.dumps(current_summary, ensure_ascii=False)
-
-        if update_fields:
-            db.reuniones.update_one(
-                {"id": reunion_id},
-                {"$set": update_fields}
-            )
+        db.reuniones.update_one(
+            {"id": reunion_id},
+            {"$set": {"minutes": json.dumps(minutes_state, ensure_ascii=False)}}
+        )
 
         return jsonify({"message": "Minutos actualizados correctamente."})
 
@@ -719,20 +689,7 @@ def send_summary_email(reunion_id: str):
             return jsonify({"error": "Reunión no encontrada."}), 404
 
         # Parse minutes (prefer new minutes field, fallback to summary)
-        minutes_data = {}
-        try:
-            if reunion_doc.get('minutes'):
-                minutes_data = json.loads(reunion_doc['minutes'])
-        except Exception:
-            pass
-        
-        if not minutes_data:
-            # Fallback to summary for backward compatibility
-            try:
-                if reunion_doc.get('resumen'):
-                    minutes_data = json.loads(reunion_doc['resumen'])
-            except Exception:
-                minutes_data = {}
+        minutes_data = _load_minutes_data(reunion_doc)
 
         # Participants with email
         participants = []
@@ -748,9 +705,7 @@ def send_summary_email(reunion_id: str):
         if not emailer.is_configured():
             return jsonify({"error": "SMTP no configurado. Defina SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM."}), 500
 
-        # Use imported compose_minutes from services.minutes module
-        from BACKEND.services.minutes import compose_minutes as compose_minutes_service
-        minutes_obj = compose_minutes_service(reunion_doc, minutes_data)
+        minutes_obj = minutes_data or compose_minutes(reunion_doc, {})
 
         title = minutes_obj.get('metadata', {}).get('title') or 'Acta de Reunión'
         subject = f"Acta de la reunión: {title}"
@@ -798,25 +753,8 @@ def send_acta_pdf_email(reunion_id: str):
         if not reunion_doc:
             return jsonify({"error": "Reunión no encontrada."}), 404
 
-        # Parse minutes for metadata (prefer minutes, fallback to summary)
-        minutes_data = {}
-        try:
-            if reunion_doc.get('minutes'):
-                minutes_data = json.loads(reunion_doc['minutes'])
-        except Exception:
-            pass
-        
-        if not minutes_data:
-            # Fallback to summary for backward compatibility
-            try:
-                if reunion_doc.get('resumen'):
-                    minutes_data = json.loads(reunion_doc['resumen'])
-            except Exception:
-                minutes_data = {}
-
-        # Compose minutes data for PDF generation
-        from BACKEND.services.minutes import compose_minutes as compose_minutes_service
-        minutes_obj = compose_minutes_service(reunion_doc, minutes_data)
+        # Parse minutes for metadata (prefer minutes, fallback handled by helper)
+        minutes_obj = _load_minutes_data(reunion_doc)
 
         # Get participants with emails
         participants = []
@@ -910,23 +848,8 @@ def send_acta_pdf_email_upload(reunion_id: str):
         if not pdf_bytes:
             return jsonify({"error": "El PDF está vacío."}), 400
 
-        # Parse minutes to build metadata (title/date) - prefer minutes, fallback to summary
-        minutes_data = {}
-        try:
-            if reunion_doc.get('minutes'):
-                minutes_data = json.loads(reunion_doc['minutes'])
-        except Exception:
-            pass
-        
-        if not minutes_data:
-            # Fallback to summary for backward compatibility
-            try:
-                if reunion_doc.get('resumen'):
-                    minutes_data = json.loads(reunion_doc['resumen'])
-            except Exception:
-                minutes_data = {}
-
-        minutes_obj = compose_minutes(reunion_doc, minutes_data)
+        # Parse minutes to build metadata (title/date)
+        minutes_obj = _load_minutes_data(reunion_doc)
 
         # Recipients with email
         participants = []
@@ -994,7 +917,7 @@ def send_acta_pdf_email_upload(reunion_id: str):
 @app.route('/direct_summarize_transcript', methods=['POST'])
 def direct_summarize_transcript():
     """
-    Maneja la subida de un .txt, crea un registro y genera un resumen.
+    Maneja la subida de un .txt, crea un registro y genera el acta (minutes) directamente.
     """
     if 'transcript_file' not in request.files: return jsonify({"error": "No se encontró el archivo de transcripción."}), 400
     file = request.files['transcript_file']
@@ -1004,20 +927,14 @@ def direct_summarize_transcript():
         unique_id = uuid.uuid4().hex[:8]
         reunion_data = {
             "id": unique_id, "titulo": f"Transcripción: {file.filename}", "audio_path": None,
-            "transcripcion": transcript_content, "fecha_de_subida": datetime.now(), "resumen": ""
+            "transcripcion": transcript_content, "fecha_de_subida": datetime.now(), "minutes": ""
         }
         añadir_reunion(db, reunion_data)
-        
-        temp_gpt_input_file = f"gpt_input_{unique_id}.txt"
-        with open(temp_gpt_input_file, 'w', encoding='utf-8') as f: f.write(transcript_content)
-        gpt(temp_gpt_input_file, participants=[])  # No hay participantes en este caso
-        os.remove(temp_gpt_input_file)
-        
-        resumen_data = cargar_json('resumen.json', {})
-        if os.path.exists('resumen.json'): os.remove('resumen.json')
-        
-        db.reuniones.update_one({"id": unique_id}, {"$set": {"resumen": json.dumps(resumen_data, ensure_ascii=False)}})
-        
+
+        minutes_raw = generate_minutes(transcript_content, participants=[])
+        normalized_minutes = compose_minutes(reunion_data, minutes_raw)
+        db.reuniones.update_one({"id": unique_id}, {"$set": {"minutes": json.dumps(normalized_minutes, ensure_ascii=False)}})
+
         return jsonify({"reunion_id": unique_id, "message": "Transcripción procesada."})
     except Exception as e:
         print(f"Error en /direct_summarize_transcript: {e}")
@@ -1177,7 +1094,7 @@ def upload_and_process_directly():
         "fecha_de_subida": datetime.now(),
         "participantes": [], # Se omite la petición de participantes
         "transcripcion": None,
-        "resumen": None
+        "minutes": None
     }
     añadir_reunion(db, reunion_data)
 
@@ -1227,7 +1144,7 @@ def upload_and_process_meeting():
         "fecha_de_subida": datetime.now(),
         "participantes": participants,
         "transcripcion": None,
-        "resumen": None
+        "minutes": None
     }
     añadir_reunion(db, reunion_data)
 

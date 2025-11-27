@@ -25,7 +25,7 @@ import { meetingApi, audioService } from '../services/api'
 import { formatDuration, parseTimestamp } from '../services/audioUtils'
 import { WaveformPlayer } from '../components/WaveformPlayer'
 import { MarkdownContent } from '../components/MarkdownContent'
-import { exportActaToPDF, exportSummaryToPDF, buildActaPdfBlob } from '../utils/pdfExport'
+import { exportActaToPDF, buildActaPdfBlob } from '../utils/pdfExport'
 
 interface EditableParticipant {
   name: string
@@ -60,7 +60,6 @@ export const MeetingAnalysisPage: React.FC = () => {
   const [showEmailModal, setShowEmailModal] = useState(false)
   const [sendingEmail, setSendingEmail] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [activeTab, setActiveTab] = useState<'minutes' | 'summary'>('minutes')
   const [showTranscript, setShowTranscript] = useState(true)
   const [showTranscriptModal, setShowTranscriptModal] = useState(false)
   const [seekTime, setSeekTime] = useState<number | undefined>(undefined)
@@ -383,12 +382,6 @@ export const MeetingAnalysisPage: React.FC = () => {
     }
   }
 
-  const handleExportSummary = () => {
-    if (meeting) {
-      exportSummaryToPDF(meeting)
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -426,7 +419,7 @@ export const MeetingAnalysisPage: React.FC = () => {
         </div>
         <h2 className="text-3xl font-bold text-gray-900">Procesando reunión...</h2>
         <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-          La IA está analizando la transcripción y generando el resumen. 
+          La IA está analizando la transcripción y generando el acta. 
           Los resultados aparecerán automáticamente cuando esté listo.
         </p>
         <div className="bg-white rounded-lg p-6 shadow-lg border max-w-md mx-auto">
@@ -471,36 +464,10 @@ export const MeetingAnalysisPage: React.FC = () => {
         <div className="flex-1 flex overflow-hidden">
           {/* Main Content Area */}
           <div className="flex-1 flex flex-col bg-white">
-          {/* Tab Navigation */}
-          <div className="border-b border-gray-200">
-            <div className="flex px-4 sm:px-6">
-              <button
-                onClick={() => setActiveTab('minutes')}
-                className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 text-sm font-medium transition-colors ${
-                  activeTab === 'minutes'
-                    ? 'text-primary-600 border-b-2 border-primary-600'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                Acta
-              </button>
-              <button
-                onClick={() => setActiveTab('summary')}
-                className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 text-sm font-medium transition-colors ${
-                  activeTab === 'summary'
-                    ? 'text-primary-600 border-b-2 border-primary-600'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                Resumen
-              </button>
-            </div>
-          </div>
-
-          {/* Tab Content - Scrollable */}
+          {/* Content - Scrollable */}
           <div className="flex-1 overflow-y-auto">
             <div className="p-4 sm:p-6">
-              {activeTab === 'minutes' && meeting.minutes && (
+              {meeting.minutes && (
                 <div className="space-y-6">
                   {/* Meeting Metadata */}
                   <div className="pb-4 border-b border-gray-200">
@@ -904,139 +871,6 @@ export const MeetingAnalysisPage: React.FC = () => {
                 </div>
               )}
 
-              {activeTab === 'summary' && meeting.summary_data?.main_points && (
-                <div className="space-y-6">
-                  {/* Summary header with export button */}
-                  <div className="flex items-center justify-between pb-4 border-b border-gray-200">
-                    <h2 className="text-lg font-semibold text-gray-900">Resumen de la Reunión</h2>
-                    <button
-                      onClick={handleExportSummary}
-                      className="text-gray-500 hover:text-gray-700 transition-colors flex items-center space-x-1 px-3 py-1 rounded hover:bg-gray-50"
-                      title="Exportar Resumen"
-                    >
-                      <Download className="h-4 w-4" />
-                      <span className="text-sm">Exportar</span>
-                    </button>
-                  </div>
-
-                  <div className="space-y-4">
-                  {meeting.summary_data.main_points.map((point, idx) => {
-                    // Build a stable composite key for toggling to avoid collisions when IDs repeat
-                    const compositeId = `${point.id}::${point.time || ''}::${idx}`
-                    const isExpanded = expandedPoints.has(compositeId)
-                    const detail = meeting.summary_data?.detailed_summary[point.id]
-
-                    return (
-                      <div key={compositeId} className="flex items-start space-x-3">
-                        {/* Simple dot */}
-                        <div className="w-2 h-2 rounded-full bg-primary-500 mt-1.5 flex-shrink-0"></div>
-
-                        <div className="flex-1">
-                          <div className="flex items-start justify-between gap-4">
-                            <button
-                              onClick={() => togglePoint(compositeId)}
-                              className="flex-1 text-left hover:opacity-80 transition-opacity"
-                            >
-                              <h3 className="text-sm font-medium text-gray-900">{point.title}</h3>
-                            </button>
-                            <div className="flex items-center space-x-2 flex-shrink-0">
-                              {point.time && (
-                                <span
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    seekToTime(point.time!)
-                                  }}
-                                  className="text-xs text-primary-600 hover:text-primary-700 font-medium cursor-pointer"
-                                >
-                                  {point.time}
-                                </span>
-                              )}
-                              <button
-                                onClick={() => togglePoint(compositeId)}
-                                className="hover:opacity-80 transition-opacity"
-                              >
-                                {isExpanded ? (
-                                  <ChevronUp className="h-4 w-4 text-gray-400" />
-                                ) : (
-                                  <ChevronDown className="h-4 w-4 text-gray-400" />
-                                )}
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Always-visible minimal timestamp chips (first 2) */}
-                          {detail && (detail.start_time || (detail.key_timestamps && detail.key_timestamps.length > 0)) && (
-                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                              {detail.start_time && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); seekToTime(detail.start_time!) }}
-                                  className="inline-flex items-center rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-[10px] font-medium text-primary-700 hover:bg-primary-100"
-                                >
-                                  {detail.start_time}
-                                </button>
-                              )}
-                              {(() => {
-                                const all = (detail.key_timestamps || []).filter(kt => kt && kt.time)
-                                const max = Math.max(0, 2 - (detail.start_time ? 1 : 0))
-                                const shown = all.slice(0, max)
-                                const remaining = all.length - shown.length
-                                return (
-                                  <>
-                                    {shown.map((kt, i) => (
-                                      <button
-                                        key={`${point.id}-prets-${i}-${kt.time}`}
-                                        onClick={(e) => { e.stopPropagation(); seekToTime(kt.time!) }}
-                                        className="inline-flex items-center rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-[10px] font-medium text-primary-700 hover:bg-primary-100"
-                                        title={kt.description}
-                                      >
-                                        {kt.time}
-                                      </button>
-                                    ))}
-                                    {remaining > 0 && (
-                                      <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">+{remaining}</span>
-                                    )}
-                                  </>
-                                )
-                              })()}
-                            </div>
-                          )}
-
-                          {isExpanded && detail && (
-                            <>
-                              {(detail.start_time || (detail.key_timestamps && detail.key_timestamps.length > 0)) && (
-                                <div className="mt-2 flex flex-wrap items-center gap-2">
-                                  {detail.start_time && (
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); seekToTime(detail.start_time!) }}
-                                      className="inline-flex items-center rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-[11px] font-medium text-primary-700 hover:bg-primary-100"
-                                    >
-                                      {detail.start_time}
-                                    </button>
-                                  )}
-                                  {(detail.key_timestamps || []).filter(kt => kt && kt.time).map((kt, i) => (
-                                    <button
-                                      key={`${point.id}-ts-${i}-${kt.time}`}
-                                      onClick={(e) => { e.stopPropagation(); seekToTime(kt.time!) }}
-                                      className="inline-flex items-center rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-[11px] font-medium text-primary-700 hover:bg-primary-100"
-                                      title={kt.description}
-                                    >
-                                      {kt.time}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                              <div className="mt-2 text-sm text-gray-700">
-                                <MarkdownContent content={detail.content} />
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 
@@ -1212,7 +1046,7 @@ export const MeetingAnalysisPage: React.FC = () => {
           <div className="bg-white rounded-lg p-4 sm:p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto shadow-2xl border border-gray-300">
             <h3 className="text-lg font-semibold mb-4">Confirmar Destinatarios del Email</h3>
             <p className="text-gray-600 mb-4 text-sm">
-              Revise y confirme los destinatarios que recibirán el resumen de la reunión.
+              Revise y confirme los destinatarios que recibirán el acta de la reunión.
             </p>
 
             {/* Recipients List */}
@@ -1231,7 +1065,7 @@ export const MeetingAnalysisPage: React.FC = () => {
               <div className="space-y-3">
                 {emailRecipients.length === 0 && (
                   <p className="text-gray-500 text-sm italic">
-                    No hay destinatarios. Agregue al menos uno para enviar el resumen.
+                    No hay destinatarios. Agregue al menos uno para enviar el acta.
                   </p>
                 )}
                 {emailRecipients.map((recipient, index) => (

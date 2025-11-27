@@ -34,13 +34,6 @@ export interface ActionItem {
   description: string
 }
 
-export interface SummaryData {
-  metadata: MeetingMetadata
-  main_points: MainPoint[]
-  detailed_summary: Record<string, DetailedSummaryItem>
-  tasks_and_objectives?: ActionItem[]
-}
-
 export interface TranscriptSegment {
   id: number
   start: number
@@ -83,7 +76,6 @@ export interface Meeting {
   id: string
   titulo: string
   audio_filename?: string
-  summary_data?: SummaryData
   full_transcript_data?: TranscriptData
   participants: Participant[]
   is_processed: boolean

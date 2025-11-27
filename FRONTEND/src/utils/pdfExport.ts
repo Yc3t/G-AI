@@ -61,19 +61,20 @@ const addHeaderWithLogo = (doc: jsPDF, img: HTMLImageElement | null, title: stri
 
 const buildActaDoc = async (meeting: Meeting): Promise<jsPDF | null> => {
   if (!meeting?.minutes) return null
+  const minutes = meeting.minutes
 
   const doc = new jsPDF()
   const img = await loadLogo()
 
-  addHeaderWithLogo(doc, img, 'Acta de Reunión', meeting.minutes.metadata.date)
+  addHeaderWithLogo(doc, img, 'Acta de Reunión', minutes.metadata.date)
 
   // Meeting title and duration as table (single row)
   let yPos = 30
   const titleDurationRow = [
     'Título',
-    meeting.minutes.metadata.title,
+    minutes.metadata.title,
     'Duración',
-    formatDuration(meeting.minutes.metadata.duration_seconds || 0)
+    formatDuration(minutes.metadata.duration_seconds || 0)
   ]
 
   autoTable(doc, {
@@ -109,26 +110,26 @@ const buildActaDoc = async (meeting: Meeting): Promise<jsPDF | null> => {
 
   yPos = (doc as any).lastAutoTable.finalY + 12
 
-  if (meeting.minutes.objective) {
+  if (minutes.objective) {
     doc.setFontSize(12)
     doc.setFont('helvetica', 'bold')
     doc.text('Objetivo', 15, yPos)
     yPos += 5
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(10)
-    const objectiveLines = doc.splitTextToSize(meeting.minutes.objective, 180)
+    const objectiveLines = doc.splitTextToSize(minutes.objective, 180)
     doc.text(objectiveLines, 15, yPos)
     yPos += objectiveLines.length * 5 + 8
   }
 
   // Participants
-  if (meeting.minutes.participants.length > 0) {
+  if (minutes.participants.length > 0) {
     doc.setFontSize(12)
     doc.setFont('helvetica', 'bold')
     doc.text('Participantes', 15, yPos)
     yPos += 5
 
-    const participantData = meeting.minutes.participants.map(p => [
+    const participantData = minutes.participants.map(p => [
       p.name,
       p.email || '-'
     ])
@@ -162,13 +163,13 @@ const buildActaDoc = async (meeting: Meeting): Promise<jsPDF | null> => {
   }
 
   // Key Points
-  if (meeting.minutes.key_points.length > 0) {
+  if (minutes.key_points.length > 0) {
     doc.setFontSize(12)
     doc.setFont('helvetica', 'bold')
     doc.text('Puntos Clave', 15, yPos)
     yPos += 5
 
-    const keyPointsData = meeting.minutes.key_points.map((kp, idx) => [
+    const keyPointsData = minutes.key_points.map((kp, idx) => [
       `${idx + 1}`,
       kp.title
     ])
@@ -204,9 +205,9 @@ const buildActaDoc = async (meeting: Meeting): Promise<jsPDF | null> => {
     yPos = (doc as any).lastAutoTable.finalY + 10
   }
 
-  const detailEntries = meeting.minutes.key_points
+  const detailEntries = minutes.key_points
     .map((kp, idx) => {
-      const detail = meeting.minutes.details?.[kp.id]
+      const detail = minutes.details?.[kp.id]
       if (!detail || !detail.content?.trim()) return null
       return {
         index: idx + 1,
@@ -274,7 +275,7 @@ const buildActaDoc = async (meeting: Meeting): Promise<jsPDF | null> => {
           doc.setFont('helvetica', 'normal')
         }
 
-        wrappedText.forEach((wrapLine, idx) => {
+        wrappedText.forEach((wrapLine: string, idx: number) => {
           if (yPos > 280) {
             doc.addPage()
             yPos = 20
@@ -374,138 +375,4 @@ export const buildActaPdfBlob = async (meeting: Meeting): Promise<{ blob: Blob; 
   const blob = (doc as any).output('blob') as Blob
   const filename = `Acta_${meeting.minutes.metadata.title.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().split('T')[0]}.pdf`
   return { blob, filename }
-}
-
-export const exportSummaryToPDF = async (meeting: Meeting) => {
-  if (!meeting?.summary_data) return
-
-  const doc = new jsPDF()
-  const img = await loadLogo()
-
-  addHeaderWithLogo(doc, img, 'Resumen de Reunión', meeting.minutes?.metadata.date)
-
-  // Meeting title and duration as table (single row)
-  let yPos = 30
-  const titleDurationRow = [
-    'Título',
-    meeting.summary_data?.metadata.title || meeting.minutes?.metadata.title || '',
-    'Duración',
-    formatDuration(meeting.minutes?.metadata.duration_seconds || 0)
-  ]
-
-  autoTable(doc, {
-    startY: yPos,
-    body: [titleDurationRow],
-    theme: 'plain',
-    styles: {
-      fontSize: 10,
-      cellPadding: 2,
-      textColor: [0, 0, 0],
-      lineWidth: 0
-    },
-    columnStyles: {
-      0: {
-        fontStyle: 'bold',
-        cellWidth: 20,
-        fillColor: BRAND_COLOR_RGB,
-        textColor: [255, 255, 255],
-        fontSize: 9
-      },
-      1: { cellWidth: 'auto' },
-      2: {
-        fontStyle: 'bold',
-        cellWidth: 20,
-        fillColor: BRAND_COLOR_RGB,
-        textColor: [255, 255, 255],
-        fontSize: 9
-      },
-      3: { cellWidth: 30 }
-    },
-    margin: { left: 15, right: 15 }
-  })
-
-  yPos = (doc as any).lastAutoTable.finalY + 12
-
-  // Main Points
-  if (meeting.summary_data.main_points.length > 0) {
-    doc.setFontSize(12)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Puntos Principales', 15, yPos)
-    yPos += 5
-
-    const mainPointsData = meeting.summary_data.main_points.map((point, idx) => [
-      `${idx + 1}`,
-      point.title,
-      point.time || '-'
-    ])
-
-    autoTable(doc, {
-      startY: yPos,
-      head: [['Nº', 'Punto', 'Tiempo']],
-      body: mainPointsData,
-      theme: 'striped',
-      headStyles: {
-        fillColor: BRAND_COLOR_RGB,
-        textColor: [255, 255, 255],
-        fontSize: 10,
-        fontStyle: 'bold',
-        halign: 'left',
-        lineWidth: 0.5,
-        lineColor: [203, 213, 225]
-      },
-      bodyStyles: {
-        fontSize: 9,
-        cellPadding: 4,
-        textColor: [0, 0, 0]
-      },
-      columnStyles: {
-        0: { cellWidth: 15, halign: 'center' },
-        2: { cellWidth: 25, halign: 'center' }
-      },
-      alternateRowStyles: {
-        fillColor: [248, 250, 252]
-      },
-      margin: { left: 15, right: 15 }
-    })
-
-    yPos = (doc as any).lastAutoTable.finalY + 10
-  }
-
-  // Detailed Summary Sections
-  const summary = meeting.summary_data
-  if (summary && summary.detailed_summary && summary.main_points) {
-    // Iterate through main_points to get the proper order and titles
-    summary.main_points.forEach((point, index) => {
-      const sectionData = summary.detailed_summary[point.id]
-      if (!sectionData) return
-
-      if (yPos > 250) {
-        doc.addPage()
-        yPos = 20
-      }
-
-      doc.setFontSize(12)
-      doc.setFont('helvetica', 'bold')
-      doc.text(`${index + 1}. ${point.title}`, 15, yPos)
-      yPos += 7
-
-      doc.setFontSize(10)
-      doc.setFont('helvetica', 'normal')
-
-      // Remove markdown formatting for PDF
-      let content = sectionData.content
-      content = content.replace(/\*\*\*/g, '') // Remove bold+italic
-      content = content.replace(/\*\*/g, '') // Remove bold
-      content = content.replace(/\*/g, '') // Remove italic
-      content = content.replace(/^- /gm, '• ') // Convert markdown lists to bullets
-
-      const lines = doc.splitTextToSize(content, 180)
-      doc.text(lines, 15, yPos)
-      yPos += lines.length * 5 + 10
-    })
-  }
-
-  // Save PDF
-  const fileName = `Resumen_${meeting.summary_data.metadata.title.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().split('T')[0]}.pdf`
-  doc.save(fileName)
 }

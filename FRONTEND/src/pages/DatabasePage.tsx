@@ -390,10 +390,16 @@ export const DatabasePage: React.FC = () => {
                 if (typeof m.participants_count === 'number') return m.participants_count
                 if (Array.isArray(m.participants)) return m.participants.filter((p: any) => p && (p.name || String(p).trim())).length
                 if (Array.isArray(m.participantes)) return m.participantes.filter((n: any) => String(n || '').trim()).length
-                if (typeof m.resumen === 'string' && m.resumen.trim()) {
-                  const parsed = JSON.parse(m.resumen)
-                  const md = parsed && parsed.metadata
-                  if (md && Array.isArray(md.participants)) return md.participants.filter((n: any) => String(n || '').trim()).length
+                if (typeof m.minutes === 'string' && m.minutes.trim()) {
+                  const parsed = JSON.parse(m.minutes)
+                  const participants = parsed && parsed.participants
+                  if (Array.isArray(participants)) {
+                    return participants.filter((entry: any) => {
+                      if (typeof entry === 'string') return entry.trim().length > 0
+                      if (entry && typeof entry === 'object' && entry.name) return String(entry.name).trim().length > 0
+                      return false
+                    }).length
+                  }
                 }
               } catch {}
               const fallback = extraInfo[meeting.id]?.participants
