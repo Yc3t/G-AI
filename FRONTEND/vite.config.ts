@@ -7,6 +7,9 @@ export default defineConfig({
   plugins: [react(), tailwind()],
   server: {
     port: 3000,
+    allowedHosts: [
+      'reuniones.frumecar.com',
+    ],
     proxy: {
       '/api': {
         target: 'http://localhost:5000',
