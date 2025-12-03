@@ -221,8 +221,13 @@ def generate_minutes(transcript_text: str, participants: List[str], provider=Non
                         except Exception:
                             pass
 
+            seen_ids = set()
             for idx, mp in enumerate(minutes_data.main_points or []):
-                mp_id = mp.id
+                mp_id = (mp.id or "").strip()
+                if not mp_id or mp_id in seen_ids:
+                    mp_id = f"mp_{idx + 1}"
+                    minutes_data.main_points[idx].id = mp_id
+                seen_ids.add(mp_id)
                 mp_title = mp.title or ""
                 start_sec = time_to_sec(mp.time or "00:00")
                 next_sec = last_sec
