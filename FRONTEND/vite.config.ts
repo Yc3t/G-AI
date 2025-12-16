@@ -43,6 +43,14 @@ export default defineConfig({
         target: 'http://localhost:5000',
         changeOrigin: true,
       },
+      '/verify_password': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
+      '/auth': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
       '/rename_reunion': {
         target: 'http://localhost:5000',
         changeOrigin: true,

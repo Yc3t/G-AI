@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   FileText,
@@ -18,10 +18,13 @@ import {
   Database,
   Home,
   ScrollText,
-  X
+  X,
+  Info
 } from 'lucide-react'
+import Fuse from 'fuse.js'
 import type { Meeting } from '../types'
 import { meetingApi, audioService } from '../services/api'
+import { useContactsList } from '../hooks/useContacts'
 import { formatDuration, parseTimestamp } from '../services/audioUtils'
 import { WaveformPlayer } from '../components/WaveformPlayer'
 import { MarkdownContent } from '../components/MarkdownContent'
@@ -72,6 +75,133 @@ export const MeetingAnalysisPage: React.FC = () => {
   const [customSections, setCustomSections] = useState<CustomSection[]>([])
   const [saving, setSaving] = useState(false)
   const [emailRecipients, setEmailRecipients] = useState<EditableParticipant[]>([])
+  const [openSuggestionIndex, setOpenSuggestionIndex] = useState<number | null>(null)
+  const [applyingSuggestionIndex, setApplyingSuggestionIndex] = useState<number | null>(null)
+  const [suggestionPosition, setSuggestionPosition] = useState<{ top: number; left: number } | null>(null)
+  const suggestionAnchorsRef = useRef<Array<HTMLButtonElement | null>>([])
+  const { contacts } = useContactsList()
+
+  const fuse = useMemo(
+    () =>
+      new Fuse(contacts, {
+        keys: ['name'],
+        threshold: 0.35,
+        ignoreLocation: true,
+      }),
+    [contacts]
+  )
+
+  const sameName = useCallback((a?: string | null, b?: string | null) => {
+    if (!a || !b) return false
+    return a.localeCompare(b, undefined, { sensitivity: 'base' }) === 0
+  }, [])
+
+  const suggestContactMatches = useCallback(
+    (value: string) => {
+      const query = (value || '').trim()
+      if (!query) return []
+      return fuse.search(query).slice(0, 5)
+    },
+    [fuse]
+  )
+
+  const renderNameSuggestions = (currentValue: string, onSelect: (value: string) => void) => {
+    const matches = suggestContactMatches(currentValue).filter(match => !sameName(match.item.name, currentValue))
+    if (!matches.length) return null
+    return (
+      <div className="pt-1">
+        <p className="text-[11px] text-slate-500 mb-1">Coincidencias en contactos</p>
+        <div className="flex flex-wrap gap-2">
+          {matches.map(match => (
+            <button
+              key={`${match.item.name}-${match.item.email || 'contact'}`}
+              type="button"
+              onClick={() => onSelect(match.item.name)}
+              className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700 transition hover:border-primary-200 hover:bg-primary-50"
+            >
+              {match.item.name}{match.item.email ? ` · ${match.item.email}` : ''}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  const getBestSuggestion = useCallback(
+    (value: string) => {
+      const query = (value || '').trim()
+      if (!query || !contacts.length) return null
+      const results = fuse.search(query, { limit: 1 })
+      if (!results.length) return null
+      const best = results[0]
+      if (sameName(best.item.name, query)) return null
+      if (typeof best.score === 'number' && best.score > 0.4) return null
+      return best.item
+    },
+    [contacts.length, fuse, sameName]
+  )
+
+  const applySuggestionDirect = useCallback(
+    async (index: number, suggested: { name: string; email?: string | null }) => {
+      if (!id || !meeting?.minutes || !Array.isArray(meeting.minutes.participants)) return
+      setApplyingSuggestionIndex(index)
+      try {
+        const updatedParticipants = meeting.minutes.participants.map((p, idx) =>
+          idx === index ? { ...p, name: suggested.name, email: suggested.email ?? p.email ?? null } : p
+        )
+        await meetingApi.updateParticipants(id, updatedParticipants.map(p => ({ name: p.name, email: p.email || null })))
+        setMeeting({
+          ...meeting,
+          minutes: {
+            ...meeting.minutes,
+            participants: updatedParticipants
+          }
+        })
+        setOpenSuggestionIndex(null)
+        setSuggestionPosition(null)
+      } catch (error) {
+        console.error('Failed to apply suggested name', error)
+      } finally {
+        setApplyingSuggestionIndex(null)
+      }
+    },
+    [id, meeting]
+  )
+
+  const updateSuggestionPosition = useCallback((index: number) => {
+    const el = suggestionAnchorsRef.current[index]
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const desiredLeft = rect.left + window.scrollX - 10
+    const desiredTop = rect.bottom + window.scrollY + 6
+    const maxLeft = Math.max(12, window.innerWidth - 320)
+    const clampedLeft = Math.min(Math.max(12, desiredLeft), maxLeft)
+    const clampedTop = Math.max(12, desiredTop)
+    setSuggestionPosition({ top: clampedTop, left: clampedLeft })
+  }, [])
+
+  const toggleSuggestion = (index: number) => {
+    if (openSuggestionIndex === index) {
+      setOpenSuggestionIndex(null)
+      setSuggestionPosition(null)
+      return
+    }
+    setOpenSuggestionIndex(index)
+    requestAnimationFrame(() => updateSuggestionPosition(index))
+  }
+
+  useEffect(() => {
+    const handler = () => {
+      if (openSuggestionIndex === null) return
+      updateSuggestionPosition(openSuggestionIndex)
+    }
+    window.addEventListener('scroll', handler, true)
+    window.addEventListener('resize', handler)
+    return () => {
+      window.removeEventListener('scroll', handler, true)
+      window.removeEventListener('resize', handler)
+    }
+  }, [openSuggestionIndex, updateSuggestionPosition])
 
   const buildDetailBullets = (content: string) => {
     const bullets: { text: string; sub: string[] }[] = []
@@ -333,6 +463,10 @@ export const MeetingAnalysisPage: React.FC = () => {
     setShowEmailModal(true)
   }
 
+  const openSuggestion = openSuggestionIndex !== null
+    ? getBestSuggestion(meeting?.minutes?.participants?.[openSuggestionIndex]?.name || '')
+    : null
+
   const addEmailRecipient = () => {
     setEmailRecipients([...emailRecipients, { name: '', email: null }])
   }
@@ -501,7 +635,10 @@ export const MeetingAnalysisPage: React.FC = () => {
                           ) : (
                             <>
                               <button
-                                onClick={enterEditMode}
+                        onClick={() => {
+                          setOpenSuggestionIndex(null)
+                          enterEditMode()
+                        }}
                                 className="text-gray-500 hover:text-gray-700 transition-colors flex items-center space-x-1 px-2 sm:px-3 py-1 rounded hover:bg-gray-50"
                                 title="Editar acta"
                               >
@@ -574,10 +711,27 @@ export const MeetingAnalysisPage: React.FC = () => {
                         <div key={index} className="flex items-center space-x-2 sm:space-x-3 text-sm">
                           {!isEditMode && (
                             <>
-                              <div className="w-6 h-6 rounded-full bg-slate-300 flex items-center justify-center flex-shrink-0">
-                                <span className="text-[10px] font-semibold text-slate-700">
+                              <div className="relative w-6 h-6 flex-shrink-0">
+                                <div className="w-6 h-6 rounded-full bg-slate-300 flex items-center justify-center text-[10px] font-semibold text-slate-700 shadow-sm">
                                   {participant.name?.[0]?.toUpperCase() ?? '?'}
-                                </span>
+                                </div>
+                                {(() => {
+                                  const suggested = getBestSuggestion(participant.name)
+                                  if (!suggested) return null
+                                  return (
+                                    <div className="absolute -top-1 -right-1">
+                                      <button
+                                        type="button"
+                                        ref={(el) => { suggestionAnchorsRef.current[index] = el }}
+                                        onClick={() => toggleSuggestion(index)}
+                                        className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg hover:from-blue-600 hover:to-blue-700 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 transition-all duration-200 ease-out group"
+                                        title={`Sugerencia de contacto: ${suggested.name}${suggested.email ? ` · ${suggested.email}` : ''}`}
+                                      >
+                                        <Info className="h-3 w-3 group-hover:scale-110 transition-transform" />
+                                      </button>
+                                    </div>
+                                  )
+                                })()}
                               </div>
                               <div className="min-w-0">
                                 <div className="font-medium text-gray-900 truncate">{participant.name}</div>
@@ -607,11 +761,12 @@ export const MeetingAnalysisPage: React.FC = () => {
                                 placeholder="Email (opcional)"
                                 className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                               />
+                              {renderNameSuggestions(participant.name, (suggested) => updateParticipant(index, 'name', suggested))}
                             </div>
                           )}
                         </div>
                       ))}
-                    </div>
+                </div>
                   </div>
 
                   {/* Key Points */}
@@ -1040,6 +1195,47 @@ export const MeetingAnalysisPage: React.FC = () => {
         </div>
       )}
 
+      {openSuggestion && suggestionPosition && (
+        <div
+          className="fixed z-50 min-w-[220px] max-w-[300px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 shadow-xl"
+          style={{ top: suggestionPosition.top, left: suggestionPosition.left }}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-slate-900 leading-tight">Sugerencia</p>
+              <p className="text-slate-700 leading-tight">{openSuggestion.name}</p>
+              {openSuggestion.email && <p className="text-[11px] text-slate-500 leading-tight">{openSuggestion.email}</p>}
+            </div>
+            <button
+              onClick={() => { setOpenSuggestionIndex(null); setSuggestionPosition(null) }}
+              className="text-slate-400 hover:text-slate-600 focus:outline-none"
+              aria-label="Cerrar sugerencia"
+            >
+              ×
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (openSuggestionIndex !== null) applySuggestionDirect(openSuggestionIndex, openSuggestion)
+              }}
+              disabled={applyingSuggestionIndex === openSuggestionIndex}
+              className="rounded-full bg-primary-600 px-3 py-1 text-white text-[11px] font-semibold hover:bg-primary-700 disabled:opacity-60"
+            >
+              {applyingSuggestionIndex === openSuggestionIndex ? 'Aplicando...' : 'Aplicar nombre'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setOpenSuggestionIndex(null); setSuggestionPosition(null) }}
+              className="text-[11px] text-slate-500 hover:text-slate-700"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Email Modal */}
       {showEmailModal && (
         <div className="fixed inset-0 backdrop-blur-[2px] backdrop-brightness-75 flex items-center justify-center z-50">
@@ -1070,21 +1266,24 @@ export const MeetingAnalysisPage: React.FC = () => {
                 )}
                 {emailRecipients.map((recipient, index) => (
                   <div key={index} className="flex items-center space-x-2 p-3 border border-gray-300 rounded-lg">
-                    <div className="flex-1 grid grid-cols-2 gap-2">
-                      <input
-                        type="text"
-                        value={recipient.name}
-                        onChange={(e) => updateEmailRecipient(index, 'name', e.target.value)}
-                        placeholder="Nombre"
-                        className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                      />
-                      <input
-                        type="email"
-                        value={recipient.email || ''}
-                        onChange={(e) => updateEmailRecipient(index, 'email', e.target.value)}
-                        placeholder="Email"
-                        className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                      />
+                    <div className="flex-1 space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          value={recipient.name}
+                          onChange={(e) => updateEmailRecipient(index, 'name', e.target.value)}
+                          placeholder="Nombre"
+                          className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        />
+                        <input
+                          type="email"
+                          value={recipient.email || ''}
+                          onChange={(e) => updateEmailRecipient(index, 'email', e.target.value)}
+                          placeholder="Email"
+                          className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        />
+                      </div>
+                      {renderNameSuggestions(recipient.name, (suggested) => updateEmailRecipient(index, 'name', suggested))}
                     </div>
                     <button
                       onClick={() => removeEmailRecipient(index)}

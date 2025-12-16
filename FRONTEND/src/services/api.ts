@@ -121,6 +121,9 @@ export const meetingApi = {
     }
     const toSend = (participants && participants.length > 0) ? participants : participantsCache.get()
     if (toSend && toSend.length > 0) {
+      // Send full participant objects as JSON to preserve emails
+      formData.append('participantsData', JSON.stringify(toSend))
+      // Keep legacy field for backwards compatibility
       formData.append('participants', toSend.map(p => p.name).join(','))
     }
     

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   MicOff,
@@ -7,10 +7,13 @@ import {
   Trash2,
   Check,
   Database,
-  Pencil
+  Pencil,
+  Info
 } from 'lucide-react'
+import Fuse from 'fuse.js'
 import { AudioRecorder } from '../services/audioUtils'
 import { meetingApi } from '../services/api'
+import { useContactsList } from '../hooks/useContacts'
 import type { Participant, RecorderState } from '../types'
 
 type WakeLockSentinel = {
@@ -37,14 +40,21 @@ export const RecorderPage: React.FC = () => {
   })
   
   const [participants, setParticipants] = useState<Participant[]>([])
+  const participantsRef = useRef<Participant[]>([]) // Ref to access current participants in callbacks
   const [isEditingParticipants, setIsEditingParticipants] = useState(false)
   const [participantDrafts, setParticipantDrafts] = useState<string[]>([])
   const [permissionChecked, setPermissionChecked] = useState(false)
+  const [hasManualParticipantEdits, setHasManualParticipantEdits] = useState(false)
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [shouldAutoUpload, setShouldAutoUpload] = useState(false)
   const shouldAutoUploadRef = useRef(false)
+  const { contacts } = useContactsList()
+  const [openSuggestionIndex, setOpenSuggestionIndex] = useState<number | null>(null)
+  const [applyingSuggestionIndex, setApplyingSuggestionIndex] = useState<number | null>(null)
+  const [suggestionPosition, setSuggestionPosition] = useState<{ top: number; left: number } | null>(null)
+  const suggestionAnchorsRef = useRef<Array<HTMLButtonElement | null>>([])
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [waveformPoints, setWaveformPoints] = useState<number[]>(() => Array.from({ length: 100 }, () => 12))
@@ -160,10 +170,14 @@ export const RecorderPage: React.FC = () => {
     return () => { cancelled = true }
   }, [])
 
-  // Keep ref in sync
+  // Keep refs in sync
   useEffect(() => {
     shouldAutoUploadRef.current = shouldAutoUpload
   }, [shouldAutoUpload])
+
+  useEffect(() => {
+    participantsRef.current = participants
+  }, [participants])
 
   useEffect(() => {
     audioLevelRef.current = recorderState.audioLevel
@@ -270,6 +284,96 @@ export const RecorderPage: React.FC = () => {
       window.clearInterval(intervalId)
     }
   }, [])
+
+  const fuse = useMemo(
+    () =>
+      new Fuse(contacts, {
+        keys: ['name'],
+        threshold: 0.35,
+        ignoreLocation: true,
+      }),
+    [contacts]
+  )
+
+  const sameName = useCallback((a?: string | null, b?: string | null) => {
+    if (!a || !b) return false
+    return a.localeCompare(b, undefined, { sensitivity: 'base' }) === 0
+  }, [])
+
+  const getBestSuggestion = useCallback(
+    (value: string) => {
+      const query = (value || '').trim()
+      if (!query || !contacts.length) return null
+      const results = fuse.search(query, { limit: 1 })
+      if (!results.length) return null
+      const best = results[0]
+      if (sameName(best.item.name, query)) return null
+      if (typeof best.score === 'number' && best.score > 0.4) return null
+      return best.item
+    },
+    [contacts.length, fuse, sameName]
+  )
+
+  const applySuggestionDirect = useCallback(
+    (index: number, suggested: { name: string; email?: string | null }) => {
+      setApplyingSuggestionIndex(index)
+      try {
+        setParticipants(prev =>
+          prev.map((p, idx) =>
+            idx === index ? { ...p, name: suggested.name, email: suggested.email ?? p.email } : p
+          )
+        )
+        setParticipantDrafts(prev => {
+          if (!prev.length) return prev
+          const next = [...prev]
+          if (index < next.length) next[index] = suggested.name
+          return next
+        })
+        setOpenSuggestionIndex(null)
+        setSuggestionPosition(null)
+        setHasManualParticipantEdits(true) // Mark that user has manually edited participants
+      } finally {
+        setApplyingSuggestionIndex(null)
+      }
+    },
+    []
+  )
+
+  const updateSuggestionPosition = useCallback((index: number) => {
+    const el = suggestionAnchorsRef.current[index]
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const desiredLeft = rect.left + window.scrollX - 10
+    const desiredTop = rect.bottom + window.scrollY + 6
+    const maxLeft = Math.max(12, window.innerWidth - 300)
+    const clampedLeft = Math.min(Math.max(12, desiredLeft), maxLeft)
+    const clampedTop = Math.max(12, desiredTop)
+    setSuggestionPosition({ top: clampedTop, left: clampedLeft })
+  }, [])
+
+  const toggleSuggestion = (index: number) => {
+    if (openSuggestionIndex === index) {
+      setOpenSuggestionIndex(null)
+      setSuggestionPosition(null)
+      return
+    }
+    setOpenSuggestionIndex(index)
+    // measure after state updates to avoid stale layout on mobile
+    requestAnimationFrame(() => updateSuggestionPosition(index))
+  }
+
+  useEffect(() => {
+    const handler = () => {
+      if (openSuggestionIndex === null) return
+      updateSuggestionPosition(openSuggestionIndex)
+    }
+    window.addEventListener('scroll', handler, true)
+    window.addEventListener('resize', handler)
+    return () => {
+      window.removeEventListener('scroll', handler, true)
+      window.removeEventListener('resize', handler)
+    }
+  }, [openSuggestionIndex, updateSuggestionPosition])
 
   const checkMicrophonePermission = async () => {
     try {
@@ -446,7 +550,7 @@ export const RecorderPage: React.FC = () => {
         startTimer()
 
         // Process names in the background (non-blocking)
-        if (blobToSend && blobToSend.size > 0) {
+        if (blobToSend && blobToSend.size > 0 && !hasManualParticipantEdits) {
           setIsLoadingParticipants(true)
           meetingApi.identifySpeakersFromClip(blobToSend)
             .then((resp) => {
@@ -515,6 +619,9 @@ export const RecorderPage: React.FC = () => {
 
     setParticipants(cleanedNames.map(name => ({ name })))
     setIsEditingParticipants(false)
+    setOpenSuggestionIndex(null)
+    setSuggestionPosition(null)
+    setHasManualParticipantEdits(true) // Mark that user has manually edited participants
   }
 
   const handleDiscardRecording = () => {
@@ -533,8 +640,10 @@ export const RecorderPage: React.FC = () => {
     setError(null)
 
     try {
+      // Use ref to get current participants (avoids stale closure in callbacks)
+      const currentParticipants = participantsRef.current
       // Upload the recorded audio with participants - backend will create meeting if needed
-      const result = await meetingApi.uploadRecordedAudio(null, blob, participants)
+      const result = await meetingApi.uploadRecordedAudio(null, blob, currentParticipants)
       const meetingId = result.reunion_id
       
       // Navigate to the meeting analysis page
@@ -711,6 +820,10 @@ export const RecorderPage: React.FC = () => {
     void handleStartRecording()
   }
 
+  const openSuggestion = openSuggestionIndex !== null
+    ? getBestSuggestion(participants[openSuggestionIndex]?.name || '')
+    : null
+
   return (
     <div className="relative flex min-h-screen w-full overflow-hidden bg-white" style={{ minHeight: '100svh' }}>
       <input
@@ -867,22 +980,38 @@ export const RecorderPage: React.FC = () => {
                 ) : isLoadingParticipants && participants.length === 0 ? (
                   <p className="italic text-slate-400">Mostrando participantes...</p>
                 ) : participants.length > 0 ? (
-                  <div className="overflow-x-auto scrollbar-thin -mx-4 px-4">
+                  <div className="overflow-x-auto scrollbar-thin -mx-4 px-4 py-2">
                     <div className="flex gap-3 sm:justify-center" style={{ minWidth: 'min-content' }}>
-                      {participants.map((participant, index) => (
-                        <div
-                          key={`${participant.name}-${index}`}
-                          className="flex flex-col items-center gap-1 flex-shrink-0"
-                          style={{ width: 'clamp(70px, 20vw, 100px)' }}
-                        >
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-300 text-xs font-semibold text-slate-700">
-                            {participant.name?.[0]?.toUpperCase() ?? '?'}
+                      {participants.map((participant, index) => {
+                        const suggested = getBestSuggestion(participant.name)
+                        return (
+                          <div
+                            key={`${participant.name}-${index}`}
+                            className="flex flex-col items-center gap-1 flex-shrink-0 pt-1"
+                            style={{ width: 'clamp(70px, 20vw, 100px)' }}
+                          >
+                            <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-slate-300 text-xs font-semibold text-slate-700 shadow-sm">
+                              {participant.name?.[0]?.toUpperCase() ?? '?'}
+                              {suggested ? (
+                                <div className="absolute -top-0.5 -right-0.5">
+                                  <button
+                                    type="button"
+                                    ref={(el) => { suggestionAnchorsRef.current[index] = el }}
+                                    onClick={() => toggleSuggestion(index)}
+                                    className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg hover:from-blue-600 hover:to-blue-700 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 transition-all duration-200 ease-out group"
+                                    title={`Sugerencia: ${suggested.name}${suggested.email ? ` · ${suggested.email}` : ''}`}
+                                  >
+                                    <Info className="h-3 w-3 group-hover:scale-110 transition-transform" />
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                            <span className="w-full truncate text-xs text-slate-600 text-center">
+                              {participant.name}
+                            </span>
                           </div>
-                          <span className="w-full truncate text-xs text-slate-600 text-center">
-                            {participant.name}
-                          </span>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 ) : (
@@ -1007,33 +1136,74 @@ export const RecorderPage: React.FC = () => {
           {/* Recording completed card - only show when not uploading */}
           {recordedBlob && !isUploading && (
             <div className="absolute bottom-0 left-0 right-0 w-full max-w-md mx-auto rounded-t-2xl bg-white/90 px-4 py-4 sm:px-6 sm:py-6 shadow-xl ring-1 ring-slate-200 backdrop-blur">
-            <h3 className="mb-4 text-xl font-semibold text-slate-900">Grabacion completada</h3>
-            <div className="flex flex-wrap items-center justify-center gap-4">
-              <button
-                onClick={downloadRecording}
-                className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-6 py-3 text-sm font-medium text-white transition hover:bg-black focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-300 focus-visible:ring-offset-2"
-              >
-                <Download className="h-5 w-5" />
-                Descargar
-              </button>
-              <button
-                onClick={handleDiscardRecording}
-                className="inline-flex items-center gap-2 rounded-full bg-red-600 px-6 py-3 text-sm font-medium text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-300 focus-visible:ring-offset-2"
-              >
-                <Trash2 className="h-5 w-5" />
-                Descartar
-              </button>
-              <button
-                onClick={() => handleSaveRecording()}
-                className="inline-flex items-center gap-2 rounded-full bg-primary-600 px-6 py-3 text-sm font-medium text-white transition hover:bg-primary-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300 focus-visible:ring-offset-2"
-              >
-                <Check className="h-5 w-5" />
-                Guardar y analizar
-              </button>
-            </div>
+              <h3 className="mb-4 text-xl font-semibold text-slate-900">Grabacion completada</h3>
+              <div className="flex flex-wrap items-center justify-center gap-4">
+                <button
+                  onClick={downloadRecording}
+                  className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-6 py-3 text-sm font-medium text-white transition hover:bg-black focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-300 focus-visible:ring-offset-2"
+                >
+                  <Download className="h-5 w-5" />
+                  Descargar
+                </button>
+                <button
+                  onClick={handleDiscardRecording}
+                  className="inline-flex items-center gap-2 rounded-full bg-red-600 px-6 py-3 text-sm font-medium text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-300 focus-visible:ring-offset-2"
+                >
+                  <Trash2 className="h-5 w-5" />
+                  Descartar
+                </button>
+                <button
+                  onClick={() => handleSaveRecording()}
+                  className="inline-flex items-center gap-2 rounded-full bg-primary-600 px-6 py-3 text-sm font-medium text-white transition hover:bg-primary-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300 focus-visible:ring-offset-2"
+                >
+                  <Check className="h-5 w-5" />
+                  Guardar y analizar
+                </button>
+              </div>
             </div>
           )}
         </div>
-      </div>
-    )
-  }
+
+        {openSuggestion && suggestionPosition ? (
+          <div
+            className="fixed z-50 min-w-[220px] max-w-[280px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 shadow-xl"
+            style={{ top: suggestionPosition.top, left: suggestionPosition.left }}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-slate-900 leading-tight">Sugerencia</p>
+                <p className="text-slate-700 leading-tight">{openSuggestion.name}</p>
+                {openSuggestion.email && <p className="text-[11px] text-slate-500 leading-tight">{openSuggestion.email}</p>}
+              </div>
+              <button
+                onClick={() => { setOpenSuggestionIndex(null); setSuggestionPosition(null) }}
+                className="text-slate-400 hover:text-slate-600 focus:outline-none"
+                aria-label="Cerrar sugerencia"
+              >
+                x
+              </button>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (openSuggestionIndex !== null) applySuggestionDirect(openSuggestionIndex, openSuggestion)
+                }}
+                disabled={applyingSuggestionIndex === openSuggestionIndex}
+                className="rounded-full bg-primary-600 px-3 py-1 text-white text-[11px] font-semibold hover:bg-primary-700 disabled:opacity-60"
+              >
+                {applyingSuggestionIndex === openSuggestionIndex ? 'Aplicando...' : 'Aplicar nombre'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setOpenSuggestionIndex(null); setSuggestionPosition(null) }}
+                className="text-[11px] text-slate-500 hover:text-slate-700"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        ) : null}
+    </div>
+  )
+}

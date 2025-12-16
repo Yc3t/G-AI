@@ -28,7 +28,7 @@ def compose_minutes(meeting_doc: Dict[str, Any], minutes_obj: Dict[str, Any]) ->
         "details": {},
         "tasks_and_objectives": []
     }
-    
+
     # objective
     try:
         obj = str(minutes_obj.get('objective', '') or '').strip()
@@ -103,7 +103,7 @@ def compose_minutes(meeting_doc: Dict[str, Any], minutes_obj: Dict[str, Any]) ->
                 'title': mp.get('title'),
                 'time': mp.get('time')
             })
-    
+
     # details - directly from generated minutes
     try:
         det = minutes_obj.get('details') if isinstance(minutes_obj, dict) else None
@@ -153,5 +153,4 @@ def compose_minutes(meeting_doc: Dict[str, Any], minutes_obj: Dict[str, Any]) ->
         pass
 
     return minutes
-
 

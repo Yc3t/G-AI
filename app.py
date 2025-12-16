@@ -246,10 +246,10 @@ def get_reuniones():
                     minutes_title = meta.get('title')
                     if isinstance(minutes_title, str) and minutes_title.strip():
                         doc['titulo'] = minutes_title.strip()
-                    if 'participants_count' not in doc:
-                        participants_list = minutes_blob.get('participants')
-                        if isinstance(participants_list, list):
-                            doc['participants_count'] = len([p for p in participants_list if isinstance(p, dict) and p.get('name')])
+                        if 'participants_count' not in doc:
+                            participants_list = minutes_blob.get('participants')
+                            if isinstance(participants_list, list):
+                                doc['participants_count'] = len([p for p in participants_list if isinstance(p, dict) and p.get('name')])
             except Exception:
                 pass
             if isinstance(doc.get('fecha_de_subida'), datetime):
@@ -464,32 +464,52 @@ def process_final_audio():
 
     # Get reunion ID if provided, otherwise create new meeting
     reunion_id = request.form.get('reunionId')
-    participants_str = request.form.get('participants', '')
-    participants = participants_str.split(',') if participants_str else []
-    participants = [p.strip() for p in participants if p.strip()]
     
-    if not reunion_id:
-        # Create new meeting with detected participants
-        reunion_id = uuid.uuid4().hex[:8]
-        # Normalize participants into objects and enrich with emails from contacts
-        participants_objs = [{"name": n} for n in participants]
-
-        # Enrich with emails from contacts DB
+    # Try to get full participant objects first (new format), fallback to names only
+    participants_objs = []
+    participants_data_str = request.form.get('participantsData')
+    if participants_data_str:
         try:
-            contacts = {c.get('name','').strip().lower(): c.get('email') for c in list_contacts(db)}
-            for p in participants_objs:
+            participants_objs = json.loads(participants_data_str)
+            # Ensure each object has name and optional email
+            participants_objs = [
+                {"name": str(p.get('name', '')).strip(), "email": p.get('email') or None}
+                for p in participants_objs if isinstance(p, dict) and p.get('name')
+            ]
+        except Exception as e:
+            print(f"Warning: Could not parse participantsData JSON: {e}")
+            participants_objs = []
+    
+    # Fallback to legacy comma-separated names if new format not available
+    if not participants_objs:
+        participants_str = request.form.get('participants', '')
+        participants = participants_str.split(',') if participants_str else []
+        participants = [p.strip() for p in participants if p.strip()]
+        participants_objs = [{"name": n, "email": None} for n in participants]
+    
+    # Extract just names for legacy field
+    participants_names = [p['name'] for p in participants_objs]
+    
+    # Enrich participants without emails from contacts DB
+    try:
+        contacts = {c.get('name','').strip().lower(): c.get('email') for c in list_contacts(db)}
+        for p in participants_objs:
+            if not p.get('email'):
                 name_lower = p.get('name', '').strip().lower()
                 if name_lower and name_lower in contacts and contacts[name_lower]:
                     p['email'] = contacts[name_lower]
                     print(f"Enriched participant '{p['name']}' with email '{p['email']}' from contacts DB")
-        except Exception as e:
-            print(f"Warning: Could not enrich participants with contacts: {e}")
-
+    except Exception as e:
+        print(f"Warning: Could not enrich participants with contacts: {e}")
+    
+    if not reunion_id:
+        # Create new meeting with detected participants
+        reunion_id = uuid.uuid4().hex[:8]
         reunion_data = {
             "id": reunion_id,
             "titulo": f"Reunión {datetime.now().strftime('%Y-%m-%d %H:%M')}",
             "fecha_de_subida": datetime.now(),
-            "participantes": participants,
+            "participantes": participants_names,
             "participants": participants_objs,
             "audio_path": None,
             "transcripcion": None,
@@ -498,21 +518,8 @@ def process_final_audio():
         añadir_reunion(db, reunion_data)
     else:
         # Update existing meeting with participants if provided
-        if participants:
-            participants_objs = [{"name": n} for n in participants]
-
-            # Enrich with emails from contacts DB
-            try:
-                contacts = {c.get('name','').strip().lower(): c.get('email') for c in list_contacts(db)}
-                for p in participants_objs:
-                    name_lower = p.get('name', '').strip().lower()
-                    if name_lower and name_lower in contacts and contacts[name_lower]:
-                        p['email'] = contacts[name_lower]
-                        print(f"Enriched participant '{p['name']}' with email '{p['email']}' from contacts DB")
-            except Exception as e:
-                print(f"Warning: Could not enrich participants with contacts: {e}")
-
-            db.reuniones.update_one({"id": reunion_id}, {"$set": {"participantes": participants, "participants": participants_objs}})
+        if participants_objs:
+            db.reuniones.update_one({"id": reunion_id}, {"$set": {"participantes": participants_names, "participants": participants_objs}})
 
     # Guardar archivo de audio con el nombre del ID de la reunión.
     file_extension = file.filename.rsplit('.', 1)[1].lower()
@@ -644,10 +651,10 @@ def update_reunion_minutes(reunion_id: str):
             custom_sections = payload['custom_sections']
             minutes_state['custom_sections'] = custom_sections
 
-        db.reuniones.update_one(
-            {"id": reunion_id},
+            db.reuniones.update_one(
+                {"id": reunion_id},
             {"$set": {"minutes": json.dumps(minutes_state, ensure_ascii=False)}}
-        )
+            )
 
         return jsonify({"message": "Minutos actualizados correctamente."})
 
@@ -930,11 +937,11 @@ def direct_summarize_transcript():
             "transcripcion": transcript_content, "fecha_de_subida": datetime.now(), "minutes": ""
         }
         añadir_reunion(db, reunion_data)
-
+        
         minutes_raw = generate_minutes(transcript_content, participants=[])
         normalized_minutes = compose_minutes(reunion_data, minutes_raw)
         db.reuniones.update_one({"id": unique_id}, {"$set": {"minutes": json.dumps(normalized_minutes, ensure_ascii=False)}})
-
+        
         return jsonify({"reunion_id": unique_id, "message": "Transcripción procesada."})
     except Exception as e:
         print(f"Error en /direct_summarize_transcript: {e}")
