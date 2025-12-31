@@ -20,3 +20,9 @@ Werkzeug==3.1.3
 yarg==0.1.10
 resend>=0.7.0
 reportlab>=4.0.0
+gunicorn 
+pymongo
+ffmpeg-python
+mutagen
+groq
+pydub
