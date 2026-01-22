@@ -27,7 +27,6 @@ import { meetingApi, audioService } from '../services/api'
 import { useContactsList } from '../hooks/useContacts'
 import { formatDuration, parseTimestamp } from '../services/audioUtils'
 import { WaveformPlayer } from '../components/WaveformPlayer'
-import { MarkdownContent } from '../components/MarkdownContent'
 import { exportActaToPDF, buildActaPdfBlob } from '../utils/pdfExport'
 
 interface EditableParticipant {
@@ -147,9 +146,9 @@ export const MeetingAnalysisPage: React.FC = () => {
       setApplyingSuggestionIndex(index)
       try {
         const updatedParticipants = meeting.minutes.participants.map((p, idx) =>
-          idx === index ? { ...p, name: suggested.name, email: suggested.email ?? p.email ?? null } : p
+          idx === index ? { ...p, name: suggested.name, email: suggested.email ?? p.email ?? undefined } : p
         )
-        await meetingApi.updateParticipants(id, updatedParticipants.map(p => ({ name: p.name, email: p.email || null })))
+        await meetingApi.updateParticipants(id, updatedParticipants.map(p => ({ name: p.name, email: p.email || undefined })))
         setMeeting({
           ...meeting,
           minutes: {

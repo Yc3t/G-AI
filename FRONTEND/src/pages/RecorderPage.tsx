@@ -16,18 +16,6 @@ import { meetingApi } from '../services/api'
 import { useContactsList } from '../hooks/useContacts'
 import type { Participant, RecorderState } from '../types'
 
-type WakeLockSentinel = {
-  release: () => Promise<void>
-}
-
-declare global {
-  interface Navigator {
-    wakeLock?: {
-      request: (type: 'screen') => Promise<WakeLockSentinel>
-    }
-  }
-}
-
 export const RecorderPage: React.FC = () => {
   const navigate = useNavigate()
   const [recorderState, setRecorderState] = useState<RecorderState>({
@@ -723,28 +711,6 @@ export const RecorderPage: React.FC = () => {
   const canEditParticipants =
     !recorderState.isPreRecording && (recorderState.isRecording || recorderState.isPaused || hasCompletedNamesClip)
   
-  const statusLabel = recorderState.isRecording && !recorderState.isPaused
-    ? 'Grabando'
-    : recorderState.isPaused
-    ? 'Pausado'
-    : recorderState.isPreRecording
-    ? 'Preparando'
-    : 'Listo'
-  const statusClasses = recorderState.isRecording && !recorderState.isPaused
-    ? 'bg-red-100 text-red-800'
-    : recorderState.isPaused
-    ? 'bg-yellow-100 text-yellow-800'
-    : recorderState.isPreRecording
-    ? 'bg-blue-100 text-blue-800'
-    : 'bg-gray-100 text-gray-600'
-  const statusDot = recorderState.isRecording && !recorderState.isPaused
-    ? 'bg-red-500'
-    : recorderState.isPaused
-    ? 'bg-yellow-500'
-    : recorderState.isPreRecording
-    ? 'bg-blue-500'
-    : 'bg-gray-400'
-
   type PrimaryButtonState = 'idle' | 'preRecording' | 'recording' | 'paused' | 'ready'
 
   const primaryButtonState: PrimaryButtonState = !hasStartedSession

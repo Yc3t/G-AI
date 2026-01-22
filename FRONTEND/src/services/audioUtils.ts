@@ -59,17 +59,14 @@ export class AudioRecorder {
       this.microphone.connect(this.analyser)
       
       // Set up MediaRecorder
-      const options: MediaRecorderOptions = {
-        mimeType: 'audio/webm;codecs=opus'
+      let mimeType = 'audio/webm;codecs=opus'
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/webm'
       }
-      
-      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-        options.mimeType = 'audio/webm'
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/mp4'
       }
-      
-      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-        options.mimeType = 'audio/mp4'
-      }
+      const options: MediaRecorderOptions = { mimeType }
 
       this.mediaRecorder = new MediaRecorder(this.stream, options)
       this.chunks = []
